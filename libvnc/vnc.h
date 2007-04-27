@@ -16,10 +16,10 @@
 #define	vnc_mallocz(s) calloc(1, (s))
 #define	vnc_free(p) free((p))
 
-#ifndef DEBUG
+#ifndef VNCTERM_BIOS_DIR
 #define	bios_dir "/usr/share/xen/qemu"
 #else
-#define	bios_dir "."
+#define	bios_dir VNCTERM_BIOS_DIR
 #endif
 
 #define	MIN(a,b) (((a)<(b))?(a):(b))

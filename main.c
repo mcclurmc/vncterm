@@ -269,10 +269,12 @@ main(int argc, char **argv, char **envp)
     vnc_display_init(ds, 0, 1, &sa, "test", NULL);
     console = text_console_init(ds);
 
+#if 0
     {
 	char *msg = "Hello World\n\r";
 	console->chr_write(console, (uint8_t *)msg, strlen(msg));
     }
+#endif
 
     ds->mouse_opaque = console;
     ds->mouse_is_absolute = mouse_is_absolute;
