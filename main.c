@@ -299,8 +299,10 @@ main(int argc, char **argv, char **envp)
     if (argc == 1) {
 	argv = calloc(2, sizeof(char *));
 	argv[0] = "/bin/bash";
-    } else
+    } else {
 	argv++;
+	argc--;
+    }
 
     p = run_process(console, argv[0], argv, nenvp);
     // set_fd_handler(0, NULL, stdin_to_process, NULL, p);
