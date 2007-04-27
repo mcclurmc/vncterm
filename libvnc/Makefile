@@ -16,6 +16,10 @@ CFLAGS  = -I$(shell pwd)/include
 CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE
 CFLAGS += -Wall -Werror -g -O1
 
+ifdef LOCAL
+CFLAGS	+= -DVNCTERM_BIOS_DIR='"."'
+endif
+
 # Get gcc to generate the dependencies for us.
 CFLAGS   += -Wp,-MD,$(@D)/.$(@F).d
 DEPS     = .*.d
