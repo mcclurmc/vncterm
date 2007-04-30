@@ -21,6 +21,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#ifndef NXENSTORE
+#include <xs.h>
+static struct xs_handle *xs;
+#endif
+
 #if !defined(__APPLE__)
 #define USE_POLL
 #endif
@@ -252,14 +257,66 @@ pty_read(void *opaque)
 	pty->console->chr_write(pty->console, buf, count);
 }
 
+static struct pty *
+connect_pty(char *pty_path, CharDriverState *console)
+{
+    struct pty *pty;
+
+    pty = malloc(sizeof(struct pty));
+    if (pty == NULL)
+	err(1, "malloc");
+    pty->fd = open(pty_path, O_RDWR | O_NOCTTY);
+    if (pty->fd == -1)
+	err(1, "open");
+    pty->console = console;
+    set_fd_handler(pty->fd, NULL, pty_read, NULL, pty);
+    console_set_input(pty->console, pty->fd, pty);
+
+    return pty;
+}
+
+struct vncterm
+{
+    CharDriverState *console;
+    struct process *process;
+    struct pty *pty;
+    char *xenstore_path;
+};
+
+void
+read_xs_watch(void *opaque)
+{
+    struct vncterm *vncterm = opaque;
+    char **vec, *pty_path = NULL;
+    unsigned int num;
+
+    vec = xs_read_watch(xs, &num);
+    if (vec == NULL)
+	return;
+
+    if (strcmp(vncterm->xenstore_path, vec[XS_WATCH_PATH]))
+	goto out;
+
+    pty_path = xs_read(xs, XBT_NULL, vncterm->xenstore_path, NULL);
+    if (pty_path == NULL)
+	goto out;
+
+    vncterm->pty = connect_pty(pty_path, vncterm->console);
+
+    xs_unwatch(xs, vncterm->xenstore_path, "tty");
+
+ out:
+    free(pty_path);
+    free(vec);
+}
+
 int
 main(int argc, char **argv, char **envp)
 {
     DisplayState *ds;
-    CharDriverState *console;
-    struct process *process;
-    struct pty *pty;
+    struct vncterm *vncterm;
     struct sockaddr_in sa;
+    int display;
     struct iohandler *ioh, *next;
     struct timer *t;
     char **nenvp;
@@ -270,6 +327,9 @@ main(int argc, char **argv, char **envp)
     int nfds = 0;
     char *pty_path = NULL;
     char *title = "XenServer Virtual Terminal";
+#ifndef NXENSTORE
+    char *xenstore_path = NULL;
+#endif
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -279,15 +339,20 @@ main(int argc, char **argv, char **envp)
     struct timeval timeout_tv;
 #endif
 
+    vncterm = malloc(sizeof(struct vncterm));
+    if (vncterm == NULL)
+	err(1, "malloc");
+
     while (1) {
 	int c;
 	static struct option long_options[] = {
 	    {"pty", 1, 0, 'p'},
 	    {"title", 1, 0, 't'},
+	    {"xenstore", 1, 0, 'x'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+p:t:", long_options, NULL);
+	c = getopt_long(argc, argv, "+p:t:x:", long_options, NULL);
 	if (c == -1)
 	    break;
 
@@ -297,6 +362,11 @@ main(int argc, char **argv, char **envp)
 	    break;
 	case 't':
 	    title = strdup(optarg);
+	    break;
+	case 'x':
+#ifndef NXENSTORE
+	    xenstore_path = strdup(optarg);
+#endif
 	    break;
 	}
     }
@@ -312,35 +382,59 @@ main(int argc, char **argv, char **envp)
     ds->kbd_put_keycode = kbd_put_keycode;
     ds->kbd_put_keysym = kbd_put_keysym;
 
-    vnc_display_init(ds, 0, 1, &sa, title, NULL);
-    console = text_console_init(ds);
+    display = vnc_display_init(ds, 0, 1, &sa, title, NULL);
+    vncterm->console = text_console_init(ds);
 
 #if 0
     {
 	char *msg = "Hello World\n\r";
-	console->chr_write(console, (uint8_t *)msg, strlen(msg));
+	vncterm->console->chr_write(vncterm->console, (uint8_t *)msg,
+				    strlen(msg));
     }
 #endif
 
-    ds->mouse_opaque = console;
+    ds->mouse_opaque = vncterm->console;
     ds->mouse_is_absolute = mouse_is_absolute;
     ds->mouse_event = mouse_event;
 
-    ds->hw_opaque = console;
+    ds->hw_opaque = vncterm->console;
     ds->hw_update = hw_update;
     ds->hw_invalidate = hw_invalidate;
 
-    if (pty_path) {
-	pty = malloc(sizeof(struct pty));
-	if (pty == NULL)
-	    err(1, "malloc");
-	pty->fd = open(pty_path, O_RDWR | O_NOCTTY);
-	if (pty->fd == -1)
-	    err(1, "open");
-	pty->console = console;
-	set_fd_handler(pty->fd, NULL, pty_read, NULL, pty);
-	console_set_input(pty->console, pty->fd, pty);
-    } else {
+#ifndef NXENSTORE
+    if (xenstore_path) {
+	char *path, *port;
+
+	xs = xs_daemon_open();
+	if (xs == NULL)
+	    err(1, "xs_daemon_open");
+
+	ret = asprintf(&vncterm->xenstore_path, "%s/tty", xenstore_path);
+	if (ret < 0)
+	    err(1, "asprintf");
+
+	ret = xs_watch(xs, vncterm->xenstore_path, "tty");
+	if (!ret)
+	    err(1, "xs_watch");
+	set_fd_handler(xs_fileno(xs), NULL, read_xs_watch, NULL, vncterm);
+
+	ret = asprintf(&path, "%s/vnc-port", xenstore_path);
+	if (ret < 0)
+	    err(1, "asprintf");
+	ret = asprintf(&port, "%d", 5900 + display);
+	if (ret < 0)
+	    err(1, "asprintf");
+
+	ret = xs_write(xs, XBT_NULL, path, port, strlen(port));
+	if (!ret)
+	    err(1, "xs_write");
+    }
+#endif
+
+    if (pty_path)
+	vncterm->pty = connect_pty(pty_path, vncterm->console);
+
+    if (!pty_path && !xenstore_path) {
 	for (nenv = 0; envp[nenv]; nenv++)
 	    ;
 	nenvp = malloc(nenv * sizeof(char *));
@@ -362,8 +456,8 @@ main(int argc, char **argv, char **envp)
 	    argc -= optind;
 	}
 
-	process = run_process(console, argv[0], argv, nenvp);
-	// set_fd_handler(0, NULL, stdin_to_process, NULL, process);
+	vncterm->process = run_process(vncterm->console, argv[0], argv, nenvp);
+	// set_fd_handler(0, NULL, stdin_to_process, NULL, vncterm->process);
     }
 
     for (;;) {

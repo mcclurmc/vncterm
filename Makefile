@@ -9,8 +9,11 @@ ifeq ($(shell uname),Linux)
 LDLIBS := -lutil
 endif
 
-XEN_ARCH := x86
-XEN_TARGET := xen
+ifndef WITHOUT_XENSTORE
+LDLIBS += -lxenstore
+else
+CFLAGS += -DNXENSTORE
+endif
 
 CFLAGS  = -I$(shell pwd)/include
 # _GNU_SOURCE for asprintf.
