@@ -1,6 +1,8 @@
 
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <getopt.h>
 #include <netinet/in.h>
 #if !defined(__APPLE__)
 #include <pty.h>
@@ -9,6 +11,7 @@
 #endif
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -16,6 +19,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 
 #if !defined(__APPLE__)
 #define USE_POLL
@@ -231,12 +235,30 @@ run_process(CharDriverState *console, const char *filename,
     return p;
 }
 
+struct pty {
+    int fd;
+    CharDriverState *console;
+};
+
+void
+pty_read(void *opaque)
+{
+    struct pty *pty = opaque;
+    uint8_t buf[16];
+    int count;
+
+    count = read(pty->fd, buf, 16);
+    if (count > 0)
+	pty->console->chr_write(pty->console, buf, count);
+}
+
 int
 main(int argc, char **argv, char **envp)
 {
     DisplayState *ds;
     CharDriverState *console;
-    struct process *p;
+    struct process *process;
+    struct pty *pty;
     struct sockaddr_in sa;
     struct iohandler *ioh, *next;
     struct timer *t;
@@ -246,6 +268,8 @@ main(int argc, char **argv, char **envp)
     short revents;
     int ret, timeout;
     int nfds = 0;
+    char *pty_path = NULL;
+    char *title = "XenServer Virtual Terminal";
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -254,6 +278,28 @@ main(int argc, char **argv, char **envp)
     fd_set rdset, wrset, exset, rdset_m, wrset_m, exset_m;
     struct timeval timeout_tv;
 #endif
+
+    while (1) {
+	int c;
+	static struct option long_options[] = {
+	    {"pty", 1, 0, 'p'},
+	    {"title", 1, 0, 't'},
+	    {0, 0, 0, 0}
+	};
+
+	c = getopt_long(argc, argv, "+p:t:", long_options, NULL);
+	if (c == -1)
+	    break;
+
+	switch (c) {
+	case 'p':
+	    pty_path = strdup(optarg);
+	    break;
+	case 't':
+	    title = strdup(optarg);
+	    break;
+	}
+    }
 
     memset(&sa.sin_addr, 0, sizeof(sa.sin_addr));
 
@@ -266,7 +312,7 @@ main(int argc, char **argv, char **envp)
     ds->kbd_put_keycode = kbd_put_keycode;
     ds->kbd_put_keysym = kbd_put_keysym;
 
-    vnc_display_init(ds, 0, 1, &sa, "test", NULL);
+    vnc_display_init(ds, 0, 1, &sa, title, NULL);
     console = text_console_init(ds);
 
 #if 0
@@ -284,28 +330,41 @@ main(int argc, char **argv, char **envp)
     ds->hw_update = hw_update;
     ds->hw_invalidate = hw_invalidate;
 
-    for (nenv = 0; envp[nenv]; nenv++)
-	;
-    nenvp = malloc(nenv * sizeof(char *));
-    if (nenvp == NULL)
-	err(1, "malloc");
-    for (nenv = 0; envp[nenv]; nenv++)
-	if (strncmp(envp[nenv], "TERM=", 5))
-	    nenvp[nenv] = envp[nenv];
-	else
-	    nenvp[nenv] = "TERM=vt100";
-    nenvp[nenv] = NULL;
-
-    if (argc == 1) {
-	argv = calloc(2, sizeof(char *));
-	argv[0] = "/bin/bash";
+    if (pty_path) {
+	pty = malloc(sizeof(struct pty));
+	if (pty == NULL)
+	    err(1, "malloc");
+	pty->fd = open(pty_path, O_RDWR | O_NOCTTY);
+	if (pty->fd == -1)
+	    err(1, "open");
+	pty->console = console;
+	set_fd_handler(pty->fd, NULL, pty_read, NULL, pty);
+	console_set_input(pty->console, pty->fd, pty);
     } else {
-	argv++;
-	argc--;
-    }
+	for (nenv = 0; envp[nenv]; nenv++)
+	    ;
+	nenvp = malloc(nenv * sizeof(char *));
+	if (nenvp == NULL)
+	    err(1, "malloc");
+	for (nenv = 0; envp[nenv]; nenv++)
+	    if (strncmp(envp[nenv], "TERM=", 5))
+		nenvp[nenv] = envp[nenv];
+	    else
+		nenvp[nenv] = "TERM=vt100";
+	nenvp[nenv] = NULL;
 
-    p = run_process(console, argv[0], argv, nenvp);
-    // set_fd_handler(0, NULL, stdin_to_process, NULL, p);
+	if (argc == optind) {
+	    argv = calloc(2, sizeof(char *));
+	    argv[0] = "/bin/bash";
+	    argc = 1;
+	} else {
+	    argv += optind;
+	    argc -= optind;
+	}
+
+	process = run_process(console, argv[0], argv, nenvp);
+	// set_fd_handler(0, NULL, stdin_to_process, NULL, process);
+    }
 
     for (;;) {
 	if (handlers_updated) {
