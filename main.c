@@ -330,6 +330,7 @@ main(int argc, char **argv, char **envp)
 #ifndef NXENSTORE
     char *xenstore_path = NULL;
 #endif
+    int exit_on_eof = 1;
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -347,18 +348,22 @@ main(int argc, char **argv, char **envp)
 	int c;
 	static struct option long_options[] = {
 	    {"pty", 1, 0, 'p'},
+	    {"stay", 0, 0, 's'},
 	    {"title", 1, 0, 't'},
 	    {"xenstore", 1, 0, 'x'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+p:t:x:", long_options, NULL);
+	c = getopt_long(argc, argv, "+p:st:x:", long_options, NULL);
 	if (c == -1)
 	    break;
 
 	switch (c) {
 	case 'p':
 	    pty_path = strdup(optarg);
+	    break;
+	case 's':
+	    exit_on_eof = 0;
 	    break;
 	case 't':
 	    title = strdup(optarg);
@@ -568,6 +573,8 @@ main(int argc, char **argv, char **envp)
 		if (revents == 0)
 		    continue;
 		if (revents & (POLLERR|POLLHUP|POLLNVAL)) {
+		    if (exit_on_eof)
+			exit(0);
 		    ioh->enabled = 0;
 		    handlers_updated = 1;
 		}
