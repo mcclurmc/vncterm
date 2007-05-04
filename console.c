@@ -1732,3 +1732,11 @@ console_set_input(CharDriverState *chr, int fd, void *opaque)
     s->input_stream.chunk = NULL;
     s->input_stream.chunk_tail = &s->input_stream.chunk;
 }
+
+int
+console_input_fd(CharDriverState *chr)
+{
+    TextConsole *s = chr->opaque;
+
+    return s->input_stream.fd;
+}

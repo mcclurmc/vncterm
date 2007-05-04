@@ -9,6 +9,7 @@
 #else
 #include <util.h>
 #endif
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -20,6 +21,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #ifndef NXENSTORE
 #include <xs.h>
@@ -179,6 +181,7 @@ hw_invalidate(void *s)
 struct process {
     int fd;
     CharDriverState *console;
+    pid_t pid;
 };
 
 void
@@ -209,7 +212,6 @@ struct process *
 run_process(CharDriverState *console, const char *filename,
 	    char *const argv[], char *const envp[])
 {
-    pid_t pid;
     struct process *p;
     struct winsize ws;
 
@@ -224,10 +226,10 @@ run_process(CharDriverState *console, const char *filename,
     ws.ws_xpixel = ws.ws_col * 8;
     ws.ws_ypixel = ws.ws_row * 16;
 
-    pid = forkpty(&p->fd, NULL, NULL, &ws);
-    if (pid < 0)
+    p->pid = forkpty(&p->fd, NULL, NULL, &ws);
+    if (p->pid < 0)
 	err(1, "fork %s\n", filename);
-    if (pid == 0) {
+    if (p->pid == 0) {
 	execve(filename, argv, envp);
 	perror("execve");
 	_exit(1);
@@ -238,6 +240,19 @@ run_process(CharDriverState *console, const char *filename,
     console_set_input(console, p->fd, p);
 
     return p;
+}
+
+void
+end_process(struct process *p)
+{
+    close(p->fd);
+}
+
+static void
+handle_sigchld(int signo)
+{
+    wait(NULL);
+    signal(SIGCHLD, handle_sigchld);
 }
 
 struct pty {
@@ -319,7 +334,7 @@ main(int argc, char **argv, char **envp)
     int display;
     struct iohandler *ioh, *next;
     struct timer *t;
-    char **nenvp;
+    char **nenvp = NULL;	/* sigh gcc */
     int nenv;
     uint64_t now;
     short revents;
@@ -331,6 +346,8 @@ main(int argc, char **argv, char **envp)
     char *xenstore_path = NULL;
 #endif
     int exit_on_eof = 1;
+    int restart = 0;
+    int restart_needed = 1;
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -348,19 +365,23 @@ main(int argc, char **argv, char **envp)
 	int c;
 	static struct option long_options[] = {
 	    {"pty", 1, 0, 'p'},
+	    {"restart", 0, 0, 'r'},
 	    {"stay", 0, 0, 's'},
 	    {"title", 1, 0, 't'},
 	    {"xenstore", 1, 0, 'x'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+p:st:x:", long_options, NULL);
+	c = getopt_long(argc, argv, "+p:rst:x:", long_options, NULL);
 	if (c == -1)
 	    break;
 
 	switch (c) {
 	case 'p':
 	    pty_path = strdup(optarg);
+	    break;
+	case 'r':
+	    restart = 1;
 	    break;
 	case 's':
 	    exit_on_eof = 0;
@@ -436,9 +457,6 @@ main(int argc, char **argv, char **envp)
     }
 #endif
 
-    if (pty_path)
-	vncterm->pty = connect_pty(pty_path, vncterm->console);
-
     if (!pty_path && !xenstore_path) {
 	for (nenv = 0; envp[nenv]; nenv++)
 	    ;
@@ -460,12 +478,22 @@ main(int argc, char **argv, char **envp)
 	    argv += optind;
 	    argc -= optind;
 	}
-
-	vncterm->process = run_process(vncterm->console, argv[0], argv, nenvp);
-	// set_fd_handler(0, NULL, stdin_to_process, NULL, vncterm->process);
     }
 
+    if (pty_path)
+	vncterm->pty = connect_pty(pty_path, vncterm->console);
+
+    signal(SIGCHLD, handle_sigchld);
+
     for (;;) {
+	if (restart_needed && !pty_path && !xenstore_path) {
+	    if (vncterm->process)
+		end_process(vncterm->process);
+	    vncterm->process = run_process(vncterm->console, argv[0],
+					   argv, nenvp);
+	    restart_needed = 0;
+	}
+
 	if (handlers_updated) {
 #ifdef USE_POLL
 	    if (nr_handlers > max_pollfds) {
@@ -573,7 +601,10 @@ main(int argc, char **argv, char **envp)
 		if (revents == 0)
 		    continue;
 		if (revents & (POLLERR|POLLHUP|POLLNVAL)) {
-		    if (exit_on_eof)
+		    if (restart && ioh->fd ==
+			console_input_fd(vncterm->console))
+			restart_needed = 1;
+		    else if (exit_on_eof)
 			exit(0);
 		    ioh->enabled = 0;
 		    handlers_updated = 1;

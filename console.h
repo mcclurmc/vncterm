@@ -19,6 +19,7 @@ CharDriverState *text_console_init(DisplayState *);
 void kbd_put_keysym(int keysym);
 void console_select(unsigned int index);
 void console_set_input(CharDriverState *s, int fd, void *opaque);
+int console_input_fd(CharDriverState *s);
 
 int mouse_is_absolute(void *);
 void mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque);
