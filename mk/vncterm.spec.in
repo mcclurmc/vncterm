@@ -21,6 +21,7 @@ This package contains the vncterm utility
 rm -rf $RPM_BUILD_ROOT
 mkdir -p ${RPM_BUILD_ROOT}%{_libdir}/xen/bin
 cp vncterm ${RPM_BUILD_ROOT}%{_libdir}/xen/bin/vncterm
+cp dom0term/dom0term.sh ${RPM_BUILD_ROOT}%{_libdir}/xen/bin/dom0term.sh
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -29,5 +30,6 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,-)
 %doc
 %{_libdir}/xen/bin/vncterm
+%{_libdir}/xen/bin/dom0term.sh
 
 %changelog
