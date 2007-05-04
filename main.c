@@ -298,6 +298,7 @@ struct vncterm
     char *xenstore_path;
 };
 
+#ifndef NXENSTORE
 void
 read_xs_watch(void *opaque)
 {
@@ -324,6 +325,7 @@ read_xs_watch(void *opaque)
     free(pty_path);
     free(vec);
 }
+#endif
 
 int
 main(int argc, char **argv, char **envp)
@@ -348,6 +350,7 @@ main(int argc, char **argv, char **envp)
     int exit_on_eof = 1;
     int restart = 0;
     int restart_needed = 1;
+    int cmd_mode = 0;
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -364,6 +367,7 @@ main(int argc, char **argv, char **envp)
     while (1) {
 	int c;
 	static struct option long_options[] = {
+	    {"cmd", 0, 0, 'c'},
 	    {"pty", 1, 0, 'p'},
 	    {"restart", 0, 0, 'r'},
 	    {"stay", 0, 0, 's'},
@@ -372,11 +376,14 @@ main(int argc, char **argv, char **envp)
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+p:rst:x:", long_options, NULL);
+	c = getopt_long(argc, argv, "+cp:rst:x:", long_options, NULL);
 	if (c == -1)
 	    break;
 
 	switch (c) {
+	case 'c':
+	    cmd_mode = 1;
+	    break;
 	case 'p':
 	    pty_path = strdup(optarg);
 	    break;
@@ -435,18 +442,10 @@ main(int argc, char **argv, char **envp)
 	if (xs == NULL)
 	    err(1, "xs_daemon_open");
 
-	ret = asprintf(&vncterm->xenstore_path, "%s/tty", xenstore_path);
-	if (ret < 0)
-	    err(1, "asprintf");
-
-	ret = xs_watch(xs, vncterm->xenstore_path, "tty");
-	if (!ret)
-	    err(1, "xs_watch");
-	set_fd_handler(xs_fileno(xs), NULL, read_xs_watch, NULL, vncterm);
-
 	ret = asprintf(&path, "%s/vnc-port", xenstore_path);
 	if (ret < 0)
 	    err(1, "asprintf");
+
 	ret = asprintf(&port, "%d", 5900 + display);
 	if (ret < 0)
 	    err(1, "asprintf");
@@ -454,10 +453,24 @@ main(int argc, char **argv, char **envp)
 	ret = xs_write(xs, XBT_NULL, path, port, strlen(port));
 	if (!ret)
 	    err(1, "xs_write");
-    }
-#endif
 
-    if (!pty_path && !xenstore_path) {
+	if (!cmd_mode) {
+	    ret = asprintf(&vncterm->xenstore_path, "%s/tty", xenstore_path);
+	    if (ret < 0)
+		err(1, "asprintf");
+
+	    ret = xs_watch(xs, vncterm->xenstore_path, "tty");
+	    if (!ret)
+		err(1, "xs_watch");
+	    set_fd_handler(xs_fileno(xs), NULL, read_xs_watch, NULL, vncterm);
+	}
+    }
+    else /* fallthrough */
+#endif
+    if (!pty_path)
+	cmd_mode = 1;
+
+    if (cmd_mode) {
 	for (nenv = 0; envp[nenv]; nenv++)
 	    ;
 	nenvp = malloc(nenv * sizeof(char *));
@@ -486,7 +499,7 @@ main(int argc, char **argv, char **envp)
     signal(SIGCHLD, handle_sigchld);
 
     for (;;) {
-	if (restart_needed && !pty_path && !xenstore_path) {
+	if (restart_needed && cmd_mode) {
 	    if (vncterm->process)
 		end_process(vncterm->process);
 	    vncterm->process = run_process(vncterm->console, argv[0],
