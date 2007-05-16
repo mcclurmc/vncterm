@@ -336,7 +336,7 @@ main(int argc, char **argv, char **envp)
     int display;
     struct iohandler *ioh, *next;
     struct timer *t;
-    char **nenvp = NULL;	/* sigh gcc */
+    char **newenvp = NULL;	/* sigh gcc */
     int nenv;
     uint64_t now;
     short revents;
@@ -363,6 +363,8 @@ main(int argc, char **argv, char **envp)
     vncterm = malloc(sizeof(struct vncterm));
     if (vncterm == NULL)
 	err(1, "malloc");
+
+    memset(vncterm,0,sizeof(struct vncterm));
 
     while (1) {
 	int c;
@@ -471,17 +473,22 @@ main(int argc, char **argv, char **envp)
 	cmd_mode = 1;
 
     if (cmd_mode) {
-	for (nenv = 0; envp[nenv]; nenv++)
-	    ;
-	nenvp = malloc(nenv * sizeof(char *));
-	if (nenvp == NULL)
-	    err(1, "malloc");
-	for (nenv = 0; envp[nenv]; nenv++)
-	    if (strncmp(envp[nenv], "TERM=", 5))
-		nenvp[nenv] = envp[nenv];
-	    else
-		nenvp[nenv] = "TERM=vt100";
-	nenvp[nenv] = NULL;
+	/* count env variables */
+	for (nenv = 0; envp[nenv]; nenv++);
+
+	newenvp = malloc(++nenv * sizeof(char *));
+	if (newenvp == NULL)
+		err(1, "malloc");
+
+	for (nenv = 0; envp[nenv]; nenv++) {
+		/* enforce specific TERM type */
+		if (strncmp(envp[nenv], "TERM=", 5)) {
+			newenvp[nenv] = "TERM=vt100";
+		}
+		else {
+			newenvp[nenv] = envp[nenv];
+		}
+	}
 
 	if (argc == optind) {
 	    argv = calloc(2, sizeof(char *));
@@ -503,7 +510,7 @@ main(int argc, char **argv, char **envp)
 	    if (vncterm->process)
 		end_process(vncterm->process);
 	    vncterm->process = run_process(vncterm->console, argv[0],
-					   argv, nenvp);
+					   argv, newenvp);
 	    restart_needed = 0;
 	}
 
