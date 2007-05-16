@@ -1,4 +1,3 @@
-
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -360,11 +359,9 @@ main(int argc, char **argv, char **envp)
     struct timeval timeout_tv;
 #endif
 
-    vncterm = malloc(sizeof(struct vncterm));
+    vncterm = calloc(sizeof(struct vncterm));
     if (vncterm == NULL)
 	err(1, "malloc");
-
-    memset(vncterm,0,sizeof(struct vncterm));
 
     while (1) {
 	int c;
@@ -482,12 +479,10 @@ main(int argc, char **argv, char **envp)
 
 	for (nenv = 0; envp[nenv]; nenv++) {
 		/* enforce specific TERM type */
-		if (strncmp(envp[nenv], "TERM=", 5)) {
+		if (strncmp(envp[nenv], "TERM=", 5)) 
 			newenvp[nenv] = "TERM=vt100";
-		}
-		else {
+		else
 			newenvp[nenv] = envp[nenv];
-		}
 	}
 
 	if (argc == optind) {
