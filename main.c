@@ -359,7 +359,7 @@ main(int argc, char **argv, char **envp)
     struct timeval timeout_tv;
 #endif
 
-    vncterm = calloc(sizeof(struct vncterm));
+    vncterm = calloc(1, sizeof(struct vncterm));
     if (vncterm == NULL)
 	err(1, "malloc");
 
