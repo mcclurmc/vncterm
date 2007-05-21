@@ -1547,6 +1547,25 @@ static void kbd_send_chars(void *opaque)
 }
 #endif
 
+void dump_console_to_file(CharDriverState *chr, char *fn)
+{
+    FILE* f;
+    TextConsole *s = chr->opaque;
+
+    if (s == NULL)
+	return;
+
+    if (s->cells == NULL)
+	return;
+
+    f=fopen(fn, "wb");
+    if (!f)
+	return;
+
+    fwrite(s->cells, s->width * s->total_height, sizeof(TextCell), f);
+    fclose(f);
+}
+
 /* called when an ascii key is pressed */
 void kbd_put_keysym(int keysym)
 {
