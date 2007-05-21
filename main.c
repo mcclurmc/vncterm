@@ -43,6 +43,8 @@ unsigned char challenge[AUTHCHALLENGESIZE];
 
 DisplayState display_state;
 
+static int dump_cells = 0;
+
 struct iohandler {
     int fd;
     void (*fd_read)(void *);
@@ -252,6 +254,12 @@ handle_sigchld(int signo)
 {
     wait(NULL);
     signal(SIGCHLD, handle_sigchld);
+}
+
+static void
+handle_sigusr1(int signo)
+{
+    dump_cells = 1;
 }
 
 struct pty {
@@ -498,6 +506,7 @@ main(int argc, char **argv, char **envp)
     if (pty_path)
 	vncterm->pty = connect_pty(pty_path, vncterm->console);
 
+    signal(SIGUSR1, handle_sigusr1);
     signal(SIGCHLD, handle_sigchld);
 
     for (;;) {
@@ -507,6 +516,11 @@ main(int argc, char **argv, char **envp)
 	    vncterm->process = run_process(vncterm->console, argv[0],
 					   argv, newenvp);
 	    restart_needed = 0;
+	}
+
+        if (dump_cells) {
+	    dump_cells = 0;
+	    dump_console_to_file(vncterm->console, "/tmp/console.cells");
 	}
 
 	if (handlers_updated) {

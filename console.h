@@ -1,4 +1,3 @@
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,3 +22,5 @@ int console_input_fd(CharDriverState *s);
 
 int mouse_is_absolute(void *);
 void mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque);
+
+void dump_console_to_file(CharDriverState *chr, char *fn);
