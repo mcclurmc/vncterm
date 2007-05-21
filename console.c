@@ -240,29 +240,29 @@ static void vga_fill_rect (DisplayState *ds,
 {
     uint8_t *d, *d1;
     int x, y, bpp;
-    
+
     bpp = (ds->depth + 7) >> 3;
+
     d1 = ds->data + 
         ds->linesize * posy + bpp * posx;
     for (y = 0; y < height; y++) {
         d = d1;
         switch(bpp) {
         case 1:
-            for (x = 0; x < width; x++) {
-                *((uint8_t *)d) = color;
-                d++;
-            }
+            memset(d,color,width);
+            d+=width;
             break;
+
         case 2:
             for (x = 0; x < width; x++) {
                 *((uint16_t *)d) = color;
-                d += 2;
+                d += bpp;
             }
             break;
         case 4:
             for (x = 0; x < width; x++) {
                 *((uint32_t *)d) = color;
-                d += 4;
+                d += bpp;
             }
             break;
         }
@@ -533,6 +533,7 @@ static void text_console_resize(TextConsole *s)
         w1 = s->width;
 
     cells = qemu_malloc(s->width * s->total_height * sizeof(TextCell));
+    memset(cells,0,s->width * s->total_height * sizeof(TextCell));
     for(y = 0; y < s->total_height; y++) {
         c = &cells[y * s->width];
         if (w1 > 0) {
@@ -776,7 +777,7 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
     TextConsole *s = chr->opaque;
     char *text;
 
-    // dprintf("mouse event %03x:%03x:%x:%x\n", dx, dy, dz, buttons_state);
+    dprintf("mouse event %03x:%03x:%x:%x\n", dx, dy, dz, buttons_state);
     dx = dx * s->width / 0x7FFF;
     dy = dy * s->height / 0x7FFF;
 
@@ -1073,10 +1074,12 @@ static void console_putchar(TextConsole *s, int ch)
     char *resp;
     int y1, i, x, x1, a;
 
+    dprintf("putchar %d state:%d \n", ch, s->state);
+
     update_mouse(s, s->mouse_x, s->mouse_y, 0, 0);
     switch(s->state) {
     case TTY_STATE_NORM:
-	// dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
+	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
 	if (ch > 0x1f)
 	    put_norm(ch);
         switch(ch) {
@@ -1160,7 +1163,7 @@ static void console_putchar(TextConsole *s, int ch)
         }
         break;
     case TTY_STATE_CSI: /* handle escape sequence parameters */
-	// dprintf("putchar csi %c %02x\n", ch > 0x1f ? ch : ' ', ch);
+	dprintf("putchar csi %c %02x\n", ch > 0x1f ? ch : ' ', ch);
         if (ch >= '0' && ch <= '9') {
             if (s->nb_esc_params < MAX_ESC_PARAMS) {
                 s->esc_params[s->nb_esc_params] = 
@@ -1353,10 +1356,9 @@ static void console_putchar(TextConsole *s, int ch)
 		}
 		break;
 	    case 'm':
-#if defined(__APPLE__)
-		if (0)
-#endif
+#if !defined(__APPLE__)
 		    console_handle_escape(s);
+#endif
 		break;
 	    case 'h':		/* on */
 	    case 'l':		/* off */
@@ -1598,7 +1600,7 @@ void kbd_put_keysym(int keysym)
 	    *q++ = keysym;
         }
 	for (c = 0; c < q - buf; c++)
-	    dprintf("char %c %x\n", buf[c] > 0x1f ? buf[c] : ' ', buf[c]);
+	    dprintf("fchar %c %x\n", buf[c] > 0x1f ? buf[c] : ' ', buf[c]);
 	if (s->input_stream.fd != -1)
 	    write_or_chunk(&s->input_stream, buf, q - buf);
         break;
@@ -1619,6 +1621,7 @@ static TextConsole *new_console(DisplayState *ds, int text)
     if (!active_console || (active_console->text_console && !text))
         active_console = s;
     s->ds = ds;
+    s->cells = 0;
     s->text_console = text;
     ds->graphic_mode = text ? 0 : 1;
     if (text) {
