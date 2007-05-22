@@ -442,6 +442,9 @@ main(int argc, char **argv, char **envp)
     ds->hw_invalidate = hw_invalidate;
 
 #ifndef NXENSTORE
+    if (xenstore_path && access("/proc/xen", F_OK))
+	xenstore_path = NULL;
+
     if (xenstore_path) {
 	char *path, *port;
 
