@@ -1449,6 +1449,24 @@ static void console_putchar(TextConsole *s, int ch)
 	    case 'u':
 		set_cursor(s, s->saved_y, s->saved_x);
 		break;
+	    case 'q':
+		dprintf("led toggle\n");
+		break;
+	    case 'x':
+		/* request terminal parametrs */
+		/*	report
+			no parity set
+			8 bits per character
+			19200 transmit
+			19200 receive
+			bit rate multiplier is 16
+			switch values are all 0 */
+		    asprintf(&resp, "\033[2;1;1;120;120;1;0x");
+		    if (resp)
+			write_or_chunk(&s->input_stream, (uint8_t *)resp,
+				       strlen(resp));
+		    free(resp);
+		break;
             default:
 		dprintf("unknown command %x[%c] with args", ch,
 		       ch > 0x1f ? ch : ' ');
