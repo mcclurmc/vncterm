@@ -1,3 +1,7 @@
+#ifdef DEBUG
+#define DEBUG_CONSOLE
+#endif
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +11,21 @@
 #define	qemu_malloc(s) malloc((s))
 #define	qemu_mallocz(s) calloc(1, (s))
 #define	qemu_free(p) free((p))
+
+/* control characters */
+#define BEL 0x07
+#define BS 0x08
+#define HT 0x09
+#define LF 0x0A
+#define VT 0x0B
+#define FF 0x0C
+#define CR 0x0D
+#define SO 0x0E
+#define SI 0x0F
+#define CAN 0x18
+#define ESC 0x1B
+#define DEL 0x7F
+#define CSI 0x9B
 
 struct CharDriverState {
     void *opaque;
