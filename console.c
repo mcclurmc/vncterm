@@ -1073,27 +1073,23 @@ static void console_putchar(TextConsole *s, int ch)
     TextCell *c, *d;
     char *resp;
     int y1, i, x, x1, a;
+    int x_, y_;
 
-    dprintf("putchar %d state:%d \n", ch, s->state);
+    dprintf("putchar %d '%c' state:%d \n", ch, ch, s->state);
 
     update_mouse(s, s->mouse_x, s->mouse_y, 0, 0);
     switch(s->state) {
     case TTY_STATE_NORM:
 	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
-	if (ch > 0x1f)
-	    put_norm(ch);
         switch(ch) {
-        case '\r':  /* carriage return */
-            set_cursor(s, s->y, 0);
+        case BEL:
+            /* TODO: has to be implemented, blink the screen or something */
             break;
-        case '\n':  /* newline */
-            console_put_lf(s);
-            break;
-        case '\b':  /* backspace */
+        case BS:
             if (s->x > 0) 
                 set_cursor(s, s->y, s->x - 1);
             break;
-        case '\t':  /* tabspace */
+        case HT:
             if (s->x + (8 - (s->x % 8)) > s->width) {
                 set_cursor(s, s->y, 0);
                 console_put_lf(s);
@@ -1101,14 +1097,36 @@ static void console_putchar(TextConsole *s, int ch)
                 set_cursor(s, s->y, s->x + (8 - (s->x % 8)));
             }
             break;
-        case '\a':  /* alert aka. bell */
-            /* TODO: has to be implemented */
+        case LF:
+        case VT:
+        case FF:
+            console_put_lf(s);
             break;
-        case 27:    /* esc (introducing an escape sequence) */
-	    print_norm();
+        case CR:
+            set_cursor(s, s->y, 0);
+            break;
+        case SO:
+	    dprintf("not implemented SO");
+            break;
+        case SI:
+            dprintf("not implemented SI");
+            break;
+        case CAN:
+            dprintf("not implemented CAN");
+            break;
+        case ESC:
+            print_norm();
             s->state = TTY_STATE_ESC;
             break;
+        case DEL: /* according to term=linux 'standard' should be ignored.*/
+            break;
+        case CSI:
+            print_norm();
+            s->state = TTY_STATE_CSI;
+            break;
+
         default:
+	    put_norm(ch);
 	    if (s->wrapped) {
 		set_cursor(s, s->y, 0);
 		console_put_lf(s);
@@ -1185,11 +1203,11 @@ static void console_putchar(TextConsole *s, int ch)
 	    if (s->has_qmark)
 		dprintf(" ?");
 	    for (i = 0; i < s->nb_esc_params; i++)
-		dprintf(" %0x/%d", s->esc_params[i], s->esc_params[i]);
+		dprintf(" 0x%0x/%d", s->esc_params[i], s->esc_params[i]);
 	    dprintf("\n");
             s->state = TTY_STATE_NORM;
             switch(ch) {
-	    case '@':		/* ICH */
+	    case '@': /* ins del characters */
 		y1 = cy(s->y);
 		c = &s->cells[y1 * s->width + s->width - 1];
 		if (s->esc_params[0] == 0)
@@ -1204,7 +1222,7 @@ static void console_putchar(TextConsole *s, int ch)
                     update_xy(s, x, s->y);
                 }
                 break;
-	    case 'A':		/* CUU */
+	    case 'A': /* cursor up */
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1212,7 +1230,7 @@ static void console_putchar(TextConsole *s, int ch)
 		if (s->y < s->top_marg)
 		    set_cursor(s, s->top_marg, s->x);
 		break;
-	    case 'B':		/* CUD */
+	    case 'B': /* cursor down */
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1221,7 +1239,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    set_cursor(s, s->bot_marg, s->x);
 		break;
 	    case 'a':
-            case 'C':		/* CUF */
+            case 'C': /* cursor right */
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1229,7 +1247,7 @@ static void console_putchar(TextConsole *s, int ch)
 		if (s->x >= s->width)
 		    set_cursor(s, s->y, s->width - 1);
                 break;
-            case 'D':		/* CUB */
+            case 'D': /* cursor left */
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1237,7 +1255,7 @@ static void console_putchar(TextConsole *s, int ch)
 		if (s->x < 0)
 		    set_cursor(s, s->y, 0);
                 break;
-	    case 'E':
+	    case 'E': /* cursor down and to first column */
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1245,7 +1263,7 @@ static void console_putchar(TextConsole *s, int ch)
 		if (s->y > s->bot_marg)
 		    set_cursor(s, s->bot_marg, 0);
 		break;
-	    case 'F':
+	    case 'F': /* cursor up and to first column */
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1253,26 +1271,28 @@ static void console_putchar(TextConsole *s, int ch)
 		if (s->y < s->top_marg)
 		    set_cursor(s, s->top_marg, 0);
 		break;
-	    case '`':		/* fallthrough */
+	    case '`': /* fallthrough */
 	    case 'G':
 		if (s->nb_esc_params == 1) {
 		    set_cursor(s, s->y, max(s->esc_params[0] - 1, 0));
 		}
 		break;
 	    case 'f':
-	    case 'H':		/* CUP */
-		if (s->nb_esc_params == 2) {
-		    set_cursor(s, s->esc_params[0] - 1 +
-			       (s->origin_mode ? s->top_marg : 0),
-			       s->esc_params[1] - 1);
-		    clip_y(s, y);
-		    clip_x(s, x);
-		} else {
-		    set_cursor(s, 0, 0);
+	    case 'H': /* cursor possition */
+		x_ = y_ = 0;
+		switch(s->nb_esc_params) {
+			case 2 ... 99: /* two or more */
+				y_ = s->esc_params[1] ? s->esc_params[1]-1 : 0;
+			case 1:
+				x_ = s->esc_params[0] ? s->esc_params[0]-1 : 0;
+			break;
 		}
+		set_cursor(s, x_ + (s->origin_mode ? s->top_marg : 0), y_);
+		clip_y(s, y);
+		clip_x(s, x);
 		dprintf("cursor pos %d:%d\n", s->y, s->x);
 		break;
-	    case 'J':
+	    case 'J': /* eraseInDisplay */
 		if (s->nb_esc_params == 1 && s->esc_params[0] == 2) {
 		    set_cursor(s, 0, 0);
 		    s->nb_esc_params = 0;
@@ -1330,11 +1350,10 @@ static void console_putchar(TextConsole *s, int ch)
 		    s->esc_params[0] = 1;
 		clear(s, s->y, s->x, s->y, s->x + s->esc_params[0]);
                 break;
-	    case 'c':		/* DA */
+	    case 'c': /* device attributes */
 		if (s->nb_esc_params == 0 ||
 		    (s->nb_esc_params == 1 && s->esc_params[0] == 0)) {
-		    // asprintf(&resp, "%c[?6c", 0x1b); /* no options */
-		    asprintf(&resp, "%c[?1;2c", 0x1b);
+		    asprintf(&resp, "\033[?6c");
 		    if (resp)
 			write_or_chunk(&s->input_stream, (uint8_t *)resp,
 				       strlen(resp));
@@ -1360,8 +1379,8 @@ static void console_putchar(TextConsole *s, int ch)
 		    console_handle_escape(s);
 #endif
 		break;
-	    case 'h':		/* on */
-	    case 'l':		/* off */
+	    case 'h': /* reset mode */
+	    case 'l': /* set mode */
 		a = (ch == 'h') ? 1 : 0;
 		if (s->has_qmark) {
 		    for (i = 0; i < s->nb_esc_params; i++) {
@@ -1372,7 +1391,7 @@ static void console_putchar(TextConsole *s, int ch)
 			case 2:
 			    // s->ansi_mode = a;
 			    break;
-			case 3:
+			case 3: // I
 			    // s->column_mode = a;
 			    break;
 			case 4:
@@ -1393,9 +1412,11 @@ static void console_putchar(TextConsole *s, int ch)
 			case 9:
 			    // s->interlace_mode = a;
 			    break;
-			case 20:
+
+			case 20: // I
 			    // s->line_mode = a;
 			    break;
+
 			case 25:
 			    // s->cursorvisible_mode = a;
 			    break;
@@ -1590,7 +1611,7 @@ void kbd_put_keysym(int keysym)
     TextConsole *s;
     uint8_t buf[16], *q;
     int c;
-
+dprintf("kbd_put_keysym 0x%x\n", keysym );
     s = active_console;
     if (!s || !s->text_console)
         return;
@@ -1623,7 +1644,7 @@ void kbd_put_keysym(int keysym)
 	    break;
 	case 0xe141 ... 0xe144:
 	    *q++ = '\033';
-	    dprintf("cm %d\n", s->cursorkey_mode);
+	    dprintf("cm %d , %c\n", s->cursorkey_mode, keysym&0xff );
 	    *q++ = s->cursorkey_mode ? 'O' : '[';
 	    *q++ = keysym & 0xff;
 	    break;
