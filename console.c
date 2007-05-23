@@ -70,8 +70,7 @@ typedef struct TextCell {
 enum TTYState {
     TTY_STATE_NORM,
     TTY_STATE_ESC,
-    TTY_STATE_CSI,
-    TTY_STATE_CHARSET
+    TTY_STATE_CSI
 };
 
 struct stream_chunk
@@ -448,7 +447,8 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
     DisplayState *ds = s->ds;
 
 #ifdef DEBUG_CONSOLE
-    printf("x: %2i y: %2i", x, y);
+//    printf("x: %2i y: %2i", x, y);
+ if (0)
     console_print_text_attributes(t_attrib, ch);
 #endif
 
@@ -941,7 +941,7 @@ static void scroll_down(TextConsole *s, int top, int bot, int n)
     }
 }
 
-static void send_ttf(TextConsole *s, char *f, ...)
+static void va_write(TextConsole *s, char *f, ...)
 {
     va_list ap;
     char *str;
@@ -1176,17 +1176,24 @@ static void console_putchar(TextConsole *s, int ch)
 	    clear(s, s->y, s->x, s->height - 1, s->width);
 	    break;
 	case 'D': /* linefeed */
+	    console_put_lf(s);
 	    break;
 	case 'H': /* Set tab stop at current column.*/
 	    break;
 	case 'Z': /* DEC private identification */
+	    va_write(s, "\033[?1;2C");
 	    break;
-	case '%': /* start of a TTY_STATE_CHARSET*/
-	    s->state = TTY_STATE_CHARSET;
-	    break;
+	/* charset selection */
+	case '%':
 	case '(': /* G0 charset */
 	case ')': /* G1 charset */
-
+	case '+':
+	case '*':
+	case '$':
+		dprintf("charset stuff %c/%d, params: ", ch, ch);
+		for (i = 0; i < s->nb_esc_params; i++)
+		    dprintf(" %0x/%d", s->esc_params[i], s->esc_params[i]);
+		dprintf("\n");
 	    break;
 	case '[': /* CSI */
             for(i=0;i<MAX_ESC_PARAMS;i++)
@@ -1393,7 +1400,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    case 'c': /* device attributes */
 		if (s->nb_esc_params == 0 ||
 		    (s->nb_esc_params == 1 && s->esc_params[0] == 0)) {
-		    send_ttf(s, "\033[?6c");
+		    va_write(s, "\033[?6c");
 		}
 		break;
 	    case 'd':
@@ -1479,7 +1486,7 @@ static void console_putchar(TextConsole *s, int ch)
 		if (s->nb_esc_params == 1) {
 		    switch (s->esc_params[0]) {
 		    case 6:	/* CPR */
-			send_ttf(s, "%c[%d;%dR", 0x1b, s->y + 1, s->x + 1);
+			va_write(s, "%c[%d;%dR", 0x1b, s->y + 1, s->x + 1);
 			break;
 		    }
 		}
@@ -1514,7 +1521,7 @@ static void console_putchar(TextConsole *s, int ch)
 			19200 receive
 			bit rate multiplier is 16
 			switch values are all 0 */
-		    send_ttf(s, "\033[2;1;1;120;120;1;0x");
+		    va_write(s, "\033[2;1;1;120;120;1;0x");
 		break;
             default:
 		dprintf("unknown command %x[%c] with args", ch,
@@ -1526,18 +1533,6 @@ static void console_putchar(TextConsole *s, int ch)
             }
             break;
         }
-    case TTY_STATE_CHARSET:
-	dprintf("characterset cmd %c/%d\n", ch, ch );
-	switch(ch) {
-	    case '@':
-		break;
-	    case 'G':
-		break;
-	    case '8':
-		break;
-
-	}
-	break;
     }
 }
 
