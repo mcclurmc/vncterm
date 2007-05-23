@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 #ifdef DEBUG_CONSOLE
 #define dprintf printf
@@ -70,6 +71,7 @@ enum TTYState {
     TTY_STATE_NORM,
     TTY_STATE_ESC,
     TTY_STATE_CSI,
+    TTY_STATE_CHARSET
 };
 
 struct stream_chunk
@@ -939,6 +941,21 @@ static void scroll_down(TextConsole *s, int top, int bot, int n)
     }
 }
 
+static void send_ttf(TextConsole *s, char *f, ...)
+{
+    va_list ap;
+    char *str;
+
+    va_start(ap, f);
+
+    vasprintf(&str, f, ap);
+    if (str)
+	write_or_chunk(&s->input_stream, (uint8_t *)str, strlen(str));
+    free(str);
+
+    va_end(ap);
+}
+
 static void console_put_lf(TextConsole *s)
 {
 
@@ -1071,7 +1088,6 @@ static void put_norm(char ch)
 static void console_putchar(TextConsole *s, int ch)
 {
     TextCell *c, *d;
-    char *resp;
     int y1, i, x, x1, a;
     int x_, y_;
 
@@ -1148,33 +1164,57 @@ static void console_putchar(TextConsole *s, int ch)
 	    dprintf("putchar esc %c %02x\n", ch > 0x1f ? ch : ' ', ch);
 	s->state = TTY_STATE_NORM;
 	switch (ch) {
-	case '[':
+	case ']': /* Operating system command */
+	    break;
+	case '>': /* Set numeric keypad mode */
+	    break;
+	case '=': /* Set application keypad mode */
+	    break;
+	case 'c': /* reset */
+	    set_cursor(s, 0, 0);
+	    s->nb_esc_params = 0;
+	    clear(s, s->y, s->x, s->height - 1, s->width);
+	    break;
+	case 'D': /* linefeed */
+	    break;
+	case 'H': /* Set tab stop at current column.*/
+	    break;
+	case 'Z': /* DEC private identification */
+	    break;
+	case '%': /* start of a TTY_STATE_CHARSET*/
+	    s->state = TTY_STATE_CHARSET;
+	    break;
+	case '(': /* G0 charset */
+	case ')': /* G1 charset */
+
+	    break;
+	case '[': /* CSI */
             for(i=0;i<MAX_ESC_PARAMS;i++)
                 s->esc_params[i] = 0;
             s->nb_esc_params = 0;
 	    s->has_qmark = 0;
             s->state = TTY_STATE_CSI;
 	    break;
-	case 'E':
+	case 'E': /* new line */
 	    set_cursor(s, s->y + 1, 0);
 	    if (s->y > s->bot_marg) {
 		set_cursor(s, s->bot_marg, s->x);
 		scroll_up(s, s->top_marg, s->bot_marg, 1);
 	    }
 	    break;
-	case 'M':
+	case 'M': /* reverse linefeed */
 	    set_cursor(s, s->y - 1, 0);
 	    if (s->y < s->top_marg) {
 		set_cursor(s, s->top_marg, s->x);;
 		scroll_down(s, s->top_marg, s->bot_marg, 1);
 	    }
 	    break;
-	case '7':		/* DECSC */
+	case '7': /* save current state */
 	    s->saved_x = s->x;
 	    s->saved_y = s->y;
 	    s->saved_t_attrib = s->t_attrib;
 	    break;
-	case '8':		/* DECRC */
+	case '8': /* restore current state */
 	    set_cursor(s, s->saved_y, s->saved_x);
 	    s->t_attrib = s->saved_t_attrib;
 	    break;
@@ -1353,11 +1393,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    case 'c': /* device attributes */
 		if (s->nb_esc_params == 0 ||
 		    (s->nb_esc_params == 1 && s->esc_params[0] == 0)) {
-		    asprintf(&resp, "\033[?6c");
-		    if (resp)
-			write_or_chunk(&s->input_stream, (uint8_t *)resp,
-				       strlen(resp));
-		    free(resp);
+		    send_ttf(s, "\033[?6c");
 		}
 		break;
 	    case 'd':
@@ -1443,11 +1479,7 @@ static void console_putchar(TextConsole *s, int ch)
 		if (s->nb_esc_params == 1) {
 		    switch (s->esc_params[0]) {
 		    case 6:	/* CPR */
-			asprintf(&resp, "%c[%d;%dR", 0x1b, s->y + 1, s->x + 1);
-			if (resp)
-			    write_or_chunk(&s->input_stream, (uint8_t *)resp,
-					   strlen(resp));
-			free(resp);
+			send_ttf(s, "%c[%d;%dR", 0x1b, s->y + 1, s->x + 1);
 			break;
 		    }
 		}
@@ -1482,11 +1514,7 @@ static void console_putchar(TextConsole *s, int ch)
 			19200 receive
 			bit rate multiplier is 16
 			switch values are all 0 */
-		    asprintf(&resp, "\033[2;1;1;120;120;1;0x");
-		    if (resp)
-			write_or_chunk(&s->input_stream, (uint8_t *)resp,
-				       strlen(resp));
-		    free(resp);
+		    send_ttf(s, "\033[2;1;1;120;120;1;0x");
 		break;
             default:
 		dprintf("unknown command %x[%c] with args", ch,
@@ -1498,6 +1526,18 @@ static void console_putchar(TextConsole *s, int ch)
             }
             break;
         }
+    case TTY_STATE_CHARSET:
+	dprintf("characterset cmd %c/%d\n", ch, ch );
+	switch(ch) {
+	    case '@':
+		break;
+	    case 'G':
+		break;
+	    case '8':
+		break;
+
+	}
+	break;
     }
 }
 
@@ -1755,10 +1795,10 @@ CharDriverState *text_console_init(DisplayState *ds)
         color_inited = 1;
         set_color_table(ds);
     }
+
     s->y_displayed = 0;
     s->y_base = 0;
     s->total_height = DEFAULT_BACKSCROLL;
-    // s->cells = qemu_malloc(s->width * s->total_height * sizeof(TextCell));
     set_cursor(s, 0, 0);
     s->mouse_x = -1;
     s->mouse_y = -1;
@@ -1778,6 +1818,7 @@ CharDriverState *text_console_init(DisplayState *ds)
 
     /* set current text attributes to default */
     s->t_attrib = s->t_attrib_default;
+
     text_console_resize(s);
 
     return chr;
