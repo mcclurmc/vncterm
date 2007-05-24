@@ -20,6 +20,7 @@ struct DisplayState {
     void (*dpy_refresh)(struct DisplayState *s);
     void (*dpy_copy)(struct DisplayState *s, int src_x, int src_y, int dst_x, int dst_y, int w, int h);
     void (*dpy_set_server_text)(struct DisplayState *s, char *text);
+    void (*dpy_bell)(struct DisplayState *s);
 
     void *hw_opaque;
     void (*hw_update)(void *);

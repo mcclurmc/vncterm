@@ -245,6 +245,14 @@ static void vnc_framebuffer_update(VncState *vs, int x, int y, int w, int h,
     vnc_write_s32(vs, encoding);
 }
 
+static void vnc_send_bell(DisplayState *ds)
+{
+    VncState *vs = ds->opaque;
+
+    vnc_write_u8(vs, 2);  /* msg id */
+    vnc_flush(vs);
+}
+
 static void vnc_send_resize(DisplayState *ds)
 {
     VncState *vs = ds->opaque;
@@ -931,6 +939,7 @@ static void press_key(VncState *vs, int keycode)
 
 static void do_key_event(VncState *vs, int down, uint32_t sym)
 {
+
     sym &= 0xFFFF;
 
     if (vs->ds->graphic_mode) {
@@ -1523,6 +1532,7 @@ int vnc_display_init(DisplayState *ds, int display, int find_unused,
     vs->ds->dpy_resize = vnc_dpy_resize;
     vs->ds->dpy_refresh = vnc_dpy_refresh;
     vs->ds->dpy_set_server_text = vnc_set_server_text;
+    vs->ds->dpy_bell = vnc_send_bell;
 
     vnc_dpy_resize(vs->ds, 640, 400);
 
