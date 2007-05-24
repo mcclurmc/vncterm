@@ -1405,7 +1405,7 @@ static void console_putchar(TextConsole *s, int ch)
 			if (s->ansi_mode)
 			    va_write(s, "\033[?1;2c"); // I'm a VT100 ansi
 			else
-			    va_write(s, "\033/Z"); // I'm a VT52
+			    va_write(s, "\033[?62;1;2c"); // I'm a VT220
 		    }
 		}
 		break;
