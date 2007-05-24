@@ -1104,7 +1104,7 @@ static void console_putchar(TextConsole *s, int ch)
 	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
         switch(ch) {
         case BEL:
-            /* TODO: has to be implemented, blink the screen or something */
+	    s->ds->dpy_bell(s->ds);
             break;
         case BS:
             if (s->x > 0) 
