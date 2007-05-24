@@ -143,6 +143,7 @@ struct TextConsole {
     int origin_mode;
     int insert_mode;
     int cursorkey_mode;
+    int ansi_mode;
     int top_marg;
     int bot_marg;
     TextAttributes t_attrib_default; /* default text attributes */
@@ -1400,7 +1401,12 @@ static void console_putchar(TextConsole *s, int ch)
 	    case 'c': /* device attributes */
 		if (s->nb_esc_params == 0 ||
 		    (s->nb_esc_params == 1 && s->esc_params[0] == 0)) {
-		    va_write(s, "\033[?6c");
+		    if ( !s->has_qmark ) {
+			if (s->ansi_mode)
+			    va_write(s, "\033[?1;2c"); // I'm a VT100 ansi
+			else
+			    va_write(s, "\033/Z"); // I'm a VT52
+		    }
 		}
 		break;
 	    case 'd':
@@ -1432,7 +1438,7 @@ static void console_putchar(TextConsole *s, int ch)
 			    s->cursorkey_mode = a;
 			    break;
 			case 2:
-			    // s->ansi_mode = a;
+			    s->ansi_mode = a;
 			    break;
 			case 3: // I
 			    // s->column_mode = a;
