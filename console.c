@@ -357,7 +357,7 @@ enum color_names {
     COLOR_BLACK   = 0,
     COLOR_RED     = 1,
     COLOR_GREEN   = 2,
-    COLOR_YELLOW  = 3,
+    COLOR_BROWN  = 3,
     COLOR_BLUE    = 4,
     COLOR_MAGENTA = 5,
     COLOR_CYAN    = 6,
@@ -369,7 +369,7 @@ static const uint32_t color_table_rgb[2][8] = {
         QEMU_RGB(0x00, 0x00, 0x00),  /* black */
         QEMU_RGB(0xaa, 0x00, 0x00),  /* red */
         QEMU_RGB(0x00, 0xaa, 0x00),  /* green */
-        QEMU_RGB(0xaa, 0xaa, 0x00),  /* yellow */
+        QEMU_RGB(0xb2, 0x68, 0x18),  /* brown */
         QEMU_RGB(0x00, 0x00, 0xaa),  /* blue */
         QEMU_RGB(0xaa, 0x00, 0xaa),  /* magenta */
         QEMU_RGB(0x00, 0xaa, 0xaa),  /* cyan */
@@ -379,7 +379,7 @@ static const uint32_t color_table_rgb[2][8] = {
         QEMU_RGB(0x00, 0x00, 0x00),  /* black */
         QEMU_RGB(0xff, 0x00, 0x00),  /* red */
         QEMU_RGB(0x00, 0xff, 0x00),  /* green */
-        QEMU_RGB(0xff, 0xff, 0x00),  /* yellow */
+        QEMU_RGB(0xb2, 0x68, 0x18),  /* brown */
         QEMU_RGB(0x00, 0x00, 0xff),  /* blue */
         QEMU_RGB(0xff, 0x00, 0xff),  /* magenta */
         QEMU_RGB(0x00, 0xff, 0xff),  /* cyan */
@@ -1027,7 +1027,7 @@ static void console_handle_escape(TextConsole *s)
                 s->t_attrib.fgcol=COLOR_GREEN;
                 break;
             case 33:
-                s->t_attrib.fgcol=COLOR_YELLOW;
+                s->t_attrib.fgcol=COLOR_BROWN;
                 break;
             case 34:
                 s->t_attrib.fgcol=COLOR_BLUE;
@@ -1041,6 +1041,10 @@ static void console_handle_escape(TextConsole *s)
             case 37:
                 s->t_attrib.fgcol=COLOR_WHITE;
                 break;
+	    case 38:
+	    case 39:
+		// TODO: implement
+		break;
             /* set background color */
             case 40:
                 s->t_attrib.bgcol=COLOR_BLACK;
@@ -1052,7 +1056,7 @@ static void console_handle_escape(TextConsole *s)
                 s->t_attrib.bgcol=COLOR_GREEN;
                 break;
             case 43:
-                s->t_attrib.bgcol=COLOR_YELLOW;
+                s->t_attrib.bgcol=COLOR_BROWN;
                 break;
             case 44:
                 s->t_attrib.bgcol=COLOR_BLUE;
