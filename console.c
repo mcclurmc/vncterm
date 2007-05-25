@@ -34,7 +34,6 @@
 #define dprintf(s, ...)
 #endif
 
-//#define DEBUG_CONSOLE
 #define DEFAULT_BACKSCROLL 512
 #define MAX_CONSOLES 12
 
@@ -43,6 +42,10 @@
 
 #define	min(a,b) ((a) < (b) ? (a) : (b))
 #define	max(a,b) ((a) > (b) ? (a) : (b))
+
+/* fonts */
+#define G0 0
+#define G1 1
 
 typedef struct TextAttributes {
     uint8_t fgcol:4;
@@ -53,6 +56,7 @@ typedef struct TextAttributes {
     uint8_t invers:1;
     uint8_t unvisible:1;
     uint8_t used:1;
+    uint8_t font:3;
 } TextAttributes;
 
 typedef struct CellAttributes {
@@ -63,6 +67,7 @@ typedef struct TextCell {
     uint8_t ch;
     TextAttributes t_attrib;
     CellAttributes c_attrib;
+
 } TextCell;
 
 #define MAX_ESC_PARAMS 3
@@ -311,6 +316,7 @@ static void vga_bitblt(DisplayState *ds, int xs, int ys, int xd, int yd, int w, 
 #define FONT_WIDTH 8
 
 #include "vgafont.h"
+#include "graphfont.h"
 
 #define cbswap_32(__x) \
 ((uint32_t)( \
@@ -451,6 +457,7 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
 //    printf("x: %2i y: %2i", x, y);
  if (0)
     console_print_text_attributes(t_attrib, ch);
+    dprintf("using font nr %d\n", t_attrib->font);
 #endif
 
     if (t_attrib->invers ^ c_attrib->highlit ^
@@ -468,7 +475,17 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
     d = ds->data + 
         ds->linesize * y * FONT_HEIGHT + bpp * x * FONT_WIDTH;
     linesize = ds->linesize;
-    font_ptr = vgafont16 + FONT_HEIGHT * ch;
+
+    switch( t_attrib->font ) {
+	case G1:
+	    font_ptr = graphfont16 + FONT_HEIGHT * ch;
+	break;
+	case G0:
+	default:
+	    font_ptr = vgafont16 + FONT_HEIGHT * ch;
+	break;
+    }
+
     xorcol = bgcol ^ fgcol;
     switch(ds->depth) {
     case 8:
@@ -1127,10 +1144,12 @@ static void console_putchar(TextConsole *s, int ch)
             set_cursor(s, s->y, 0);
             break;
         case SO:
-	    dprintf("not implemented SO");
+	    dprintf("SO G1 switch");
+	    s->t_attrib.font = G1;
             break;
         case SI:
-            dprintf("not implemented SI");
+            dprintf("SI G0 switch");
+	    s->t_attrib.font = G0;
             break;
         case CAN:
             dprintf("not implemented CAN");
@@ -1819,6 +1838,7 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->t_attrib_default.fgcol = COLOR_WHITE;
     s->t_attrib_default.bgcol = COLOR_BLACK;
     s->t_attrib_default.used = 0;
+    s->t_attrib_default.font = 0;
     s->c_attrib_default.highlit = 0;
 
     /* set current text attributes to default */
