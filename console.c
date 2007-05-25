@@ -1214,10 +1214,23 @@ static void console_putchar(TextConsole *s, int ch)
 	case '+':
 	case '*':
 	case '$':
+		if (s->nb_esc_params==1) {
+		    switch(s->esc_params[0]) {
+			case '0':
+			    s->t_attrib.font = G1;
+			break;
+			default:
+			case 'B':
+			    s->t_attrib.font = G0;
+			break;
+		    }
+		}
+#ifdef DEBUG_CONSOLE
 		dprintf("charset stuff %c/%d, params: ", ch, ch);
 		for (i = 0; i < s->nb_esc_params; i++)
 		    dprintf(" %0x/%d", s->esc_params[i], s->esc_params[i]);
 		dprintf("\n");
+#endif
 	    break;
 	case '[': /* CSI */
             for(i=0;i<MAX_ESC_PARAMS;i++)
@@ -1269,6 +1282,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    }
             if (ch == ';')
                 break;
+#ifdef DEBUG_CONSOLE
 	    dprintf("csi %x[%c] with args", ch,
 		   ch > 0x1f ? ch : ' ');
 	    if (s->has_qmark)
@@ -1276,6 +1290,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    for (i = 0; i < s->nb_esc_params; i++)
 		dprintf(" 0x%0x/%d", s->esc_params[i], s->esc_params[i]);
 	    dprintf("\n");
+#endif
             s->state = TTY_STATE_NORM;
             switch(ch) {
 	    case '@': /* ins del characters */
@@ -1553,11 +1568,13 @@ static void console_putchar(TextConsole *s, int ch)
 		    va_write(s, "\033[2;1;1;120;120;1;0x");
 		break;
             default:
+#ifdef DEBUG_CONSOLE
 		dprintf("unknown command %x[%c] with args", ch,
 		       ch > 0x1f ? ch : ' ');
 		for (i = 0; i < s->nb_esc_params; i++)
 		    dprintf(" %0x/%d", s->esc_params[i], s->esc_params[i]);
 		dprintf("\n");
+#endif
                 break;
             }
             break;
