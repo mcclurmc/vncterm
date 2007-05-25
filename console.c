@@ -1838,7 +1838,7 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->t_attrib_default.fgcol = COLOR_WHITE;
     s->t_attrib_default.bgcol = COLOR_BLACK;
     s->t_attrib_default.used = 0;
-    s->t_attrib_default.font = 0;
+    s->t_attrib_default.font = G0;
     s->c_attrib_default.highlit = 0;
 
     /* set current text attributes to default */
