@@ -984,6 +984,7 @@ static void console_put_lf(TextConsole *s)
     }
 }
 
+#if !defined(__APPLE__)
 /* Set console attributes depending on the current escape codes.
  * NOTE: I know this code is not very efficient (checking every color for it
  * self) but it is more readable and better maintainable.
@@ -1090,6 +1091,7 @@ static void console_handle_escape(TextConsole *s)
         }
     }
 }
+#endif
 
 char normbuf[1024];
 int normidx = 0;

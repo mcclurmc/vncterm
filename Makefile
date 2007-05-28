@@ -5,6 +5,11 @@ OBJS := main.o console.o
 LIBS_so := libvnc/libvnc.so
 LIBS := libvnc/libvnc.a
 
+CFLAGS  = -I$(shell pwd)/include
+# _GNU_SOURCE for asprintf.
+CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE
+CFLAGS += -Wall -Werror -g -O1
+
 ifeq ($(shell uname),Linux)
 LDLIBS := -lutil
 endif
@@ -14,11 +19,6 @@ LDLIBS += -lxenstore
 else
 CFLAGS += -DNXENSTORE
 endif
-
-CFLAGS  = -I$(shell pwd)/include
-# _GNU_SOURCE for asprintf.
-CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE
-CFLAGS += -Wall -Werror -g -O1
 
 # Get gcc to generate the dependencies for us.
 CFLAGS   += -Wp,-MD,$(@D)/.$(@F).d
