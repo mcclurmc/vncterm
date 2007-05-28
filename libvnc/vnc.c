@@ -913,7 +913,7 @@ static void pointer_event(VncState *vs, int button_mask, int x, int y)
 	dz = -1;
     if (button_mask & 0x10)
 	dz = 1;
-	    
+
     if (vs->ds->mouse_is_absolute(vs->ds->mouse_opaque)) {
 	vs->ds->mouse_event(x * 0x7FFF / vs->ds->width,
 			    y * 0x7FFF / vs->ds->height,
@@ -1537,6 +1537,34 @@ int vnc_display_init(DisplayState *ds, int display, int find_unused,
     vnc_dpy_resize(vs->ds, 640, 400);
 
     return display;
+}
+
+int vnc_start_viewer(int port)
+{
+    int pid, i, open_max;
+    char s[16];
+
+    sprintf(s, ":%d", port);
+
+    switch (pid = fork()) {
+    case -1:
+	fprintf(stderr, "vncviewer failed fork\n");
+	exit(1);
+
+    case 0:	/* child */
+	open_max = sysconf(_SC_OPEN_MAX);
+	for (i = 0; i < open_max; i++)
+	    if (i != STDIN_FILENO &&
+		i != STDOUT_FILENO &&
+		i != STDERR_FILENO)
+		close(i);
+	execlp("vncviewer", "vncviewer", s, NULL);
+	fprintf(stderr, "vncviewer execlp failed\n");
+	exit(1);
+
+    default:
+	return pid;
+    }
 }
 
 unsigned int seed;
