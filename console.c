@@ -1204,6 +1204,7 @@ static void console_putchar(TextConsole *s, int ch)
 	case 'c': /* reset */
 	    set_cursor(s, 0, 0);
 	    s->nb_esc_params = 0;
+            s->t_attrib = s->t_attrib_default;
 	    clear(s, s->y, s->x, s->height - 1, s->width);
 	    break;
 	case 'D': /* linefeed */
