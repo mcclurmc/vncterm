@@ -984,24 +984,40 @@ static void do_key_event(VncState *vs, int down, uint32_t sym)
 	        // qemu_keysym -= 'a' - 'A';
 	    dprintf("sym %02x\n", qemu_keysym);
 	} else {
-	    switch (sym) {
-	    case XK_Up: qemu_keysym = QEMU_KEY_UP; break;
-	    case XK_Down: qemu_keysym = QEMU_KEY_DOWN; break;
-	    case XK_Left: qemu_keysym = QEMU_KEY_LEFT; break;
-	    case XK_Right: qemu_keysym = QEMU_KEY_RIGHT; break;
-	    case XK_Home: qemu_keysym = QEMU_KEY_HOME; break;
-	    case XK_End: qemu_keysym = QEMU_KEY_END; break;
-	    case XK_Page_Up: qemu_keysym = QEMU_KEY_PAGEUP; break;
-	    case XK_Page_Down: qemu_keysym = QEMU_KEY_PAGEDOWN; break;
-	    case XK_BackSpace: qemu_keysym = QEMU_KEY_BACKSPACE; break;
-	    case XK_Delete: qemu_keysym = QEMU_KEY_DELETE; break;
-	    case XK_Return:
-	    case XK_Linefeed: qemu_keysym = sym; break;
-	    case XK_Tab: qemu_keysym = 'I' & 0x1F; break;
-	    case XK_Escape: qemu_keysym = 27; break;
-	    default: break;
+	    if ( vs->ctl_keys & 1 ) {
+		switch (sym) {
+		case XK_Up: qemu_keysym = QEMU_KEY_CTRL_UP; break;
+		case XK_Down: qemu_keysym = QEMU_KEY_CTRL_DOWN; break;
+		case XK_Left: qemu_keysym = QEMU_KEY_CTRL_LEFT; break;
+		case XK_Right: qemu_keysym = QEMU_KEY_CTRL_RIGHT; break;
+		case XK_Home: qemu_keysym = QEMU_KEY_CTRL_HOME; break;
+		case XK_End: qemu_keysym = QEMU_KEY_CTRL_END; break;
+		case XK_Page_Up: qemu_keysym = QEMU_KEY_CTRL_PAGEUP; break;
+		case XK_Page_Down: qemu_keysym = QEMU_KEY_CTRL_PAGEDOWN; break;
+		default: break;
+		}
+	    }
+	    else {
+		switch (sym) {
+		case XK_Up: qemu_keysym = QEMU_KEY_UP; break;
+		case XK_Down: qemu_keysym = QEMU_KEY_DOWN; break;
+		case XK_Left: qemu_keysym = QEMU_KEY_LEFT; break;
+		case XK_Right: qemu_keysym = QEMU_KEY_RIGHT; break;
+		case XK_Home: qemu_keysym = QEMU_KEY_HOME; break;
+		case XK_End: qemu_keysym = QEMU_KEY_END; break;
+		case XK_Page_Up: qemu_keysym = QEMU_KEY_PAGEUP; break;
+		case XK_Page_Down: qemu_keysym = QEMU_KEY_PAGEDOWN; break;
+		case XK_BackSpace: qemu_keysym = QEMU_KEY_BACKSPACE; break;
+		case XK_Delete: qemu_keysym = QEMU_KEY_DELETE; break;
+		case XK_Return:
+		case XK_Linefeed: qemu_keysym = sym; break;
+		case XK_Tab: qemu_keysym = 'I' & 0x1F; break;
+		case XK_Escape: qemu_keysym = 27; break;
+		default: break;
+		}
 	    }
 	    dprintf("ctrl sym %02x %02x\n", sym, qemu_keysym);
+
 	}
 	if (qemu_keysym != -1)
 	    vs->ds->kbd_put_keysym(qemu_keysym);

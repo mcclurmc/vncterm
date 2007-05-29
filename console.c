@@ -1694,10 +1694,13 @@ void kbd_put_keysym(int keysym)
     TextConsole *s;
     uint8_t buf[16], *q;
     int c;
-dprintf("kbd_put_keysym 0x%x\n", keysym );
+
+    dprintf("kbd_put_keysym 0x%x\n", keysym );
+    
     s = active_console;
     if (!s || !s->text_console)
         return;
+
 
     switch(keysym) {
     case QEMU_KEY_CTRL_UP:
