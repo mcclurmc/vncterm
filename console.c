@@ -790,31 +790,6 @@ update_mouse_selection(TextConsole *s, int x, int y, int display)
     }
 }
 
-void
-mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
-{
-    CharDriverState *chr = opaque;
-    TextConsole *s = chr->opaque;
-    char *text;
-
-    dprintf("mouse event %03x:%03x:%x:%x\n", dx, dy, dz, buttons_state);
-    dx = dx * s->width / 0x7FFF;
-    dy = dy * s->height / 0x7FFF;
-
-    if (buttons_state == 0) {
-	if (s->mouse_select) {
-	    text = get_text(s, s->mouse_select_y, s->mouse_select_x,
-			   s->mouse_select_ey, s->mouse_select_ex);
-	    s->ds->dpy_set_server_text(s->ds, text);
-	    update_mouse_selection(s, dx, dy, 0);
-	    s->mouse_select = 0;
-	}
-	update_mouse(s, dx, dy, 1, 0);
-    } else if (buttons_state == 1) {
-	update_mouse_selection(s, dx, dy, 1);
-    }
-}
-
 static void console_scroll(int ydelta)
 {
     TextConsole *s;
@@ -866,6 +841,36 @@ static void clear(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
 	    from_x = 0;
 	    from_y++;
 	}
+    }
+}
+
+void
+mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
+{
+    CharDriverState *chr = opaque;
+    TextConsole *s = chr->opaque;
+    char *text;
+
+    dprintf("mouse event %03x:%03x:%x:%x\n", dx, dy, dz, buttons_state);
+    dx = dx * s->width / 0x7FFF;
+    dy = dy * s->height / 0x7FFF;
+
+    if (buttons_state & MOUSE_EVENT_SCROLL_UP)
+	console_scroll(-1);
+    if (buttons_state & MOUSE_EVENT_SCROLL_DOWN)
+	console_scroll(1);
+
+    if (buttons_state == 0) {
+	if (s->mouse_select) {
+	    text = get_text(s, s->mouse_select_y, s->mouse_select_x,
+			   s->mouse_select_ey, s->mouse_select_ex);
+	    s->ds->dpy_set_server_text(s->ds, text);
+	    update_mouse_selection(s, dx, dy, 0);
+	    s->mouse_select = 0;
+	}
+	update_mouse(s, dx, dy, 1, 0);
+    } else if (buttons_state == 1) {
+	update_mouse_selection(s, dx, dy, 1);
     }
 }
 

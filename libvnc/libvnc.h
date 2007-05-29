@@ -53,6 +53,8 @@ int vnc_display_init(DisplayState *ds, int display, int find_unused,
 #define MOUSE_EVENT_LBUTTON 0x01
 #define MOUSE_EVENT_RBUTTON 0x02
 #define MOUSE_EVENT_MBUTTON 0x04
+#define MOUSE_EVENT_SCROLL_UP 0x08
+#define MOUSE_EVENT_SCROLL_DOWN 0x10
 
 /* keysym is a unicode code except for special keys (see QEMU_KEY_xxx
    constants) */

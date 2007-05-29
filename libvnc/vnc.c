@@ -909,10 +909,11 @@ static void pointer_event(VncState *vs, int button_mask, int x, int y)
 	buttons |= MOUSE_EVENT_MBUTTON;
     if (button_mask & 0x04)
 	buttons |= MOUSE_EVENT_RBUTTON;
+    /* scrolling wheel events */
     if (button_mask & 0x08)
-	dz = -1;
+	buttons |= MOUSE_EVENT_SCROLL_UP;
     if (button_mask & 0x10)
-	dz = 1;
+	buttons |= MOUSE_EVENT_SCROLL_DOWN;
 
     if (vs->ds->mouse_is_absolute(vs->ds->mouse_opaque)) {
 	vs->ds->mouse_event(x * 0x7FFF / vs->ds->width,
