@@ -1115,6 +1115,15 @@ static void key_event(VncState *vs, int down, uint32_t sym)
     do_key_event(vs, down, sym);
 }
 
+static void scan_event(VncState *vs, int down, uint32_t code)
+{
+
+    if (down)
+	vs->ds->kbd_put_keycode(code & 0x7f);
+    else
+	vs->ds->kbd_put_keycode(code | 0x80);
+}
+
 static void framebuffer_set_updated(VncState *vs, int x, int y, int w, int h)
 {
 
@@ -1329,6 +1338,15 @@ static int protocol_client_msg(VncState *vs, uint8_t *data, size_t len)
 	}
 
 	client_cut_text(vs, read_u32(data, 4), (char *)(data + 8));
+	break;
+    case 254: // Special case, sending keyboard scan codes
+	if (len == 1)
+	    return 8;
+
+	vs->update_requested = 1;
+	vs->timer_interval = VNC_REFRESH_INTERVAL_BASE;
+	vs->ds->set_timer(vs->timer, vs->ds->get_clock() + vs->timer_interval);
+	scan_event(vs, read_u8(data, 1), read_u32(data, 4));
 	break;
     default:
 	dprintf("Msg: %d\n", data[0]);
