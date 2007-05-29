@@ -855,9 +855,9 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
     dx = dx * s->width / 0x7FFF;
     dy = dy * s->height / 0x7FFF;
 
-    if (buttons_state & MOUSE_EVENT_SCROLL_UP)
+    if (dz == -1)
 	console_scroll(-1);
-    if (buttons_state & MOUSE_EVENT_SCROLL_DOWN)
+    if (dz == 1)
 	console_scroll(1);
 
     if (buttons_state == 0) {
