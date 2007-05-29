@@ -491,7 +491,7 @@ main(int argc, char **argv, char **envp)
 	for (nenv = 0; envp[nenv]; nenv++) {
 		/* enforce specific TERM type */
 		if (strncmp(envp[nenv], "TERM=", 5)) 
-			newenvp[nenv] = "TERM=vt100";
+			newenvp[nenv] = "TERM=linux";
 		else
 			newenvp[nenv] = envp[nenv];
 	}
