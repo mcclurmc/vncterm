@@ -411,8 +411,6 @@ main(int argc, char **argv, char **envp)
 	}
     }
 
-    memset(&sa.sin_addr, 0, sizeof(sa.sin_addr));
-
     ds = &display_state;
     memset(ds, 0, sizeof(display_state));
     ds->set_fd_handler = set_fd_handler;
@@ -422,7 +420,11 @@ main(int argc, char **argv, char **envp)
     ds->kbd_put_keycode = kbd_put_keycode;
     ds->kbd_put_keysym = kbd_put_keysym;
 
-    display = vnc_display_init(ds, 0, 1, &sa, title, NULL);
+    memset(&sa.sin_addr, 0, sizeof(sa.sin_addr));
+    sa.sin_port = htons(0);
+    ((struct sockaddr *)&sa)->sa_family = AF_INET;
+
+    display = vnc_display_init(ds, (struct sockaddr *)&sa, 1, title, NULL);
     vncterm->console = text_console_init(ds);
 
 #if 0
@@ -490,11 +492,12 @@ main(int argc, char **argv, char **envp)
 
 	for (nenv = 0; envp[nenv]; nenv++) {
 		/* enforce specific TERM type */
-		if (strncmp(envp[nenv], "TERM=", 5)) 
+		if (!strncmp(envp[nenv], "TERM=", 5)) 
 			newenvp[nenv] = "TERM=linux";
 		else
 			newenvp[nenv] = envp[nenv];
 	}
+	newenvp[nenv] = NULL;
 
 	if (argc == optind) {
 	    argv = calloc(2, sizeof(char *));
