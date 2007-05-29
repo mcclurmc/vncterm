@@ -43,10 +43,9 @@ struct DisplayState {
 };
 typedef struct DisplayState DisplayState;
 
-struct sockaddr_in;
-int vnc_display_init(DisplayState *ds, int display, int find_unused,
-		     struct sockaddr_in *addr, char *title,
-		     char *keyboard_layout);
+struct sockaddr;
+int vnc_display_init(DisplayState *ds, struct sockaddr *sa,
+		     int find_unused, char *title, char *keyboard_layout);
 
 
 /* keyboard/mouse support */
@@ -68,13 +67,14 @@ int vnc_display_init(DisplayState *ds, int display, int find_unused,
 #define QEMU_KEY_PAGEDOWN   QEMU_KEY_ESC1(6)
 #define QEMU_KEY_DELETE     QEMU_KEY_ESC1(3)
 
-#define QEMU_KEY_CTRL_UP         0xe400
-#define QEMU_KEY_CTRL_DOWN       0xe401
-#define QEMU_KEY_CTRL_LEFT       0xe402
-#define QEMU_KEY_CTRL_RIGHT      0xe403
-#define QEMU_KEY_CTRL_HOME       0xe404
-#define QEMU_KEY_CTRL_END        0xe405
-#define QEMU_KEY_CTRL_PAGEUP     0xe406
-#define QEMU_KEY_CTRL_PAGEDOWN   0xe407
+#define QEMU_KEY_MOD_CTRL 0x300
+#define QEMU_KEY_CTRL_UP         (QEMU_KEY_UP + QEMU_KEY_MOD_CTRL)
+#define QEMU_KEY_CTRL_DOWN       (QEMU_KEY_DOWN + QEMU_KEY_MOD_CTRL)
+#define QEMU_KEY_CTRL_LEFT       (QEMU_KEY_LEFT + QEMU_KEY_MOD_CTRL)
+#define QEMU_KEY_CTRL_RIGHT      (QEMU_KEY_RIGHT + QEMU_KEY_MOD_CTRL)
+#define QEMU_KEY_CTRL_HOME       (QEMU_KEY_HOME + QEMU_KEY_MOD_CTRL)
+#define QEMU_KEY_CTRL_END        (QEMU_KEY_END + QEMU_KEY_MOD_CTRL)
+#define QEMU_KEY_CTRL_PAGEUP     (QEMU_KEY_PAGEUP + QEMU_KEY_MOD_CTRL)
+#define QEMU_KEY_CTRL_PAGEDOWN   (QEMU_KEY_PAGEDOWN + QEMU_KEY_MOD_CTRL)
 
 #endif /* _LIBVNC_LIBVNC_H */

@@ -28,6 +28,8 @@
 #include "qemu_socket.h"
 #include <assert.h>
 #include <netinet/in.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #ifdef DEBUG_VNC
 #define dprintf printf
@@ -52,10 +54,6 @@
 #include "vnc_keysym.h"
 #include "keymaps.c"
 #include "d3des.h"
-
-#define XK_MISCELLANY
-#define XK_LATIN1
-#include <X11/keysymdef.h>
 
 typedef struct Buffer
 {
@@ -101,6 +99,13 @@ struct VncState
 
     int has_resize;
     int has_hextile;
+    int has_pointer_type_change;
+
+    int absolute;
+    int last_x;
+    int last_y;
+
+    const char *display;
 
     Buffer output;
     Buffer input;
@@ -124,9 +129,8 @@ struct VncState
     int visible_w;
     int visible_h;
 
-    int ctl_keys;               /* Ctrl+Alt starts calibration */
-    int shift_keys;             /* Shift / CapsLock keys */
-    int numlock;
+    /* input */
+    uint8_t modifiers_state[256];
 
     int update_requested;
     int send_resize;
@@ -134,11 +138,33 @@ struct VncState
     char *server_cut_text;
 };
 
+#if 0
+static VncState *vnc_state; /* needed for info vnc */
+#endif
+
 #define DIRTY_PIXEL_BITS 64
 #define X2DP_DOWN(vs, x) ((x) >> (vs)->dirty_pixel_shift)
 #define X2DP_UP(vs, x) \
   (((x) + (1ULL << (vs)->dirty_pixel_shift) - 1) >> (vs)->dirty_pixel_shift)
 #define DP2X(vs, x) ((x) << (vs)->dirty_pixel_shift)
+
+#if 0
+void do_info_vnc(void)
+{
+    if (vnc_state == NULL)
+	term_printf("VNC server disabled\n");
+    else {
+	term_printf("VNC server active on: ");
+	term_print_filename(vnc_state->display);
+	term_printf("\n");
+
+	if (vnc_state->csock == -1)
+	    term_printf("No client connected\n");
+	else
+	    term_printf("Client connected\n");
+    }
+}
+#endif
 
 /* TODO
    1) Get the queue working for IO.
@@ -270,6 +296,7 @@ static void vnc_send_resize(DisplayState *ds)
 
 static void vnc_dpy_resize(DisplayState *ds, int w, int h)
 {
+    int size_changed;
     VncState *vs = ds->opaque;
     int o;
 
@@ -293,10 +320,11 @@ static void vnc_dpy_resize(DisplayState *ds, int w, int h)
 	if (ds->hw_refresh)
 	    ds->hw_refresh(ds);
     }
+    size_changed = ds->width != w || ds->height != h;
     ds->width = w;
     ds->height = h;
     ds->linesize = w * vs->depth;
-    if (vs->csock != -1 && vs->has_resize) {
+    if (vs->csock != -1 && vs->has_resize && size_changed) {
 	vs->send_resize = 1;
     }
     vs->dirty_pixel_shift = 0;
@@ -898,6 +926,19 @@ static void client_cut_text(VncState *vs, size_t len, char *text)
 {
 }
 
+static void check_pointer_type_change(VncState *vs, int absolute)
+{
+    if (vs->has_pointer_type_change && vs->absolute != absolute) {
+	vnc_write_u8(vs, 0);
+	vnc_write_u8(vs, 0);
+	vnc_write_u16(vs, 1);
+	vnc_framebuffer_update(vs, absolute, 0,
+			       vs->ds->width, vs->ds->height, -257);
+	vnc_flush(vs);
+    }
+    vs->absolute = absolute;
+}
+
 static void pointer_event(VncState *vs, int button_mask, int x, int y)
 {
     int buttons = 0;
@@ -916,176 +957,161 @@ static void pointer_event(VncState *vs, int button_mask, int x, int y)
     if (button_mask & 0x10)
 	dz = 1;
 
-    if (vs->ds->mouse_is_absolute(vs->ds->mouse_opaque)) {
+    if (vs->absolute) {
 	vs->ds->mouse_event(x * 0x7FFF / vs->ds->width,
 			    y * 0x7FFF / vs->ds->height,
 			    dz, buttons, vs->ds->mouse_opaque);
+    } else if (vs->has_pointer_type_change) {
+	x -= 0x7FFF;
+	y -= 0x7FFF;
+
+	vs->ds->mouse_event(x, y, dz, buttons, vs->ds->mouse_opaque);
     } else {
-	static int last_x = -1;
-	static int last_y = -1;
-
-	if (last_x != -1)
-	    vs->ds->mouse_event(x - last_x, y - last_y, dz, buttons,
+	if (vs->last_x != -1)
+	    vs->ds->mouse_event(x - vs->last_x,
+				y - vs->last_y,
+				dz, buttons,
 				vs->ds->mouse_opaque);
+	vs->last_x = x;
+	vs->last_y = y;
+    }
 
-	last_x = x;
-	last_y = y;
+    check_pointer_type_change(vs,
+			      vs->ds->mouse_is_absolute(vs->ds->mouse_opaque));
+}
+
+static void reset_keys(VncState *vs)
+{
+    int i;
+    for(i = 0; i < 256; i++) {
+        if (vs->modifiers_state[i]) {
+            if (i & 0x80)
+                vs->ds->kbd_put_keycode(0xe0);
+            vs->ds->kbd_put_keycode(i | 0x80);
+            vs->modifiers_state[i] = 0;
+        }
     }
 }
 
-static void press_key(VncState *vs, int keycode)
+static void press_key(VncState *vs, int keysym)
 {
-    vs->ds->kbd_put_keycode(keysym2scancode(vs->kbd_layout, keycode) & 0x7f);
-    vs->ds->kbd_put_keycode(keysym2scancode(vs->kbd_layout, keycode) | 0x80);
+    vs->ds->kbd_put_keycode(keysym2scancode(vs->kbd_layout, keysym) & 0x7f);
+    vs->ds->kbd_put_keycode(keysym2scancode(vs->kbd_layout, keysym) | 0x80);
 }
 
 static void do_key_event(VncState *vs, int down, uint32_t sym)
 {
+    int keycode;
 
-    sym &= 0xFFFF;
+    keycode = keysym2scancode(vs->kbd_layout, sym & 0xFFFF);
+    
+    /* QEMU console switch */
+    switch(keycode) {
+    case 0x2a:                          /* Left Shift */
+    case 0x36:                          /* Right Shift */
+    case 0x1d:                          /* Left CTRL */
+    case 0x9d:                          /* Right CTRL */
+    case 0x38:                          /* Left ALT */
+    case 0xb8:                          /* Right ALT */
+        if (down)
+            vs->modifiers_state[keycode] = 1;
+        else
+            vs->modifiers_state[keycode] = 0;
+        break;
+    case 0x02 ... 0x0a: /* '1' to '9' keys */ 
+        if (down && vs->modifiers_state[0x1d] && vs->modifiers_state[0x38]) {
+            /* Reset the modifiers sent to the current console */
+            reset_keys(vs);
+            // console_select(keycode - 0x02);
+            return;
+        }
+        break;
+    case 0x45:			/* NumLock */
+	if (!down)
+	    vs->modifiers_state[keycode] ^= 1;
+	break;
+    }
 
-    if (vs->ds->graphic_mode) {
-	int keycode;
-	int numlock;
-
-	keycode = keysym2scancode(vs->kbd_layout, sym);
-	numlock = keysym2numlock(vs->kbd_layout, sym);
-
+    if (keycodeIsKeypad(vs->kbd_layout, keycode)) {
         /* If the numlock state needs to change then simulate an additional
            keypress before sending this one.  This will happen if the user
            toggles numlock away from the VNC window.
         */
-	if (numlock == 1) {
-	    if (!vs->numlock) {
-		vs->numlock = 1;
-		press_key(vs, XK_Num_Lock);
+        if (keysymIsNumlock(vs->kbd_layout, sym & 0xFFFF)) {
+	    if (!vs->modifiers_state[0x45]) {
+		vs->modifiers_state[0x45] = 1;
+		press_key(vs, 0xff7f);
 	    }
-	}
-	else if (numlock == -1) {
-	    if (vs->numlock) {
-		vs->numlock = 0;
-		press_key(vs, XK_Num_Lock);
+	} else {
+	    if (vs->modifiers_state[0x45]) {
+		vs->modifiers_state[0x45] = 0;
+		press_key(vs, 0xff7f);
 	    }
         }
-
-	if (keycode & 0x80)
-	    vs->ds->kbd_put_keycode(0xe0);
-	if (down)
-	    vs->ds->kbd_put_keycode(keycode & 0x7f);
-	else
-	    vs->ds->kbd_put_keycode(keycode | 0x80);
-    } else if (down) {
-	int qemu_keysym = -1;
-
-	if (sym <= 128) { /* normal ascii */
-	    // int shifted = vs->shift_keys == 1 || vs->shift_keys == 2;
-	    qemu_keysym = sym;
-	    if (vs->ctl_keys & 1)
-		qemu_keysym &= 0x1F;
-		// if (sym >= 'A' && sym <= 'Z' && !shifted)
-	        // qemu_keysym -= 'a' - 'A';
-	    dprintf("sym %02x\n", qemu_keysym);
-	} else {
-	    if ( vs->ctl_keys & 1 ) {
-		switch (sym) {
-		case XK_Up: qemu_keysym = QEMU_KEY_CTRL_UP; break;
-		case XK_Down: qemu_keysym = QEMU_KEY_CTRL_DOWN; break;
-		case XK_Left: qemu_keysym = QEMU_KEY_CTRL_LEFT; break;
-		case XK_Right: qemu_keysym = QEMU_KEY_CTRL_RIGHT; break;
-		case XK_Home: qemu_keysym = QEMU_KEY_CTRL_HOME; break;
-		case XK_End: qemu_keysym = QEMU_KEY_CTRL_END; break;
-		case XK_Page_Up: qemu_keysym = QEMU_KEY_CTRL_PAGEUP; break;
-		case XK_Page_Down: qemu_keysym = QEMU_KEY_CTRL_PAGEDOWN; break;
-		default: break;
-		}
-	    }
-	    else {
-		switch (sym) {
-		case XK_Up: qemu_keysym = QEMU_KEY_UP; break;
-		case XK_Down: qemu_keysym = QEMU_KEY_DOWN; break;
-		case XK_Left: qemu_keysym = QEMU_KEY_LEFT; break;
-		case XK_Right: qemu_keysym = QEMU_KEY_RIGHT; break;
-		case XK_Home: qemu_keysym = QEMU_KEY_HOME; break;
-		case XK_End: qemu_keysym = QEMU_KEY_END; break;
-		case XK_Page_Up: qemu_keysym = QEMU_KEY_PAGEUP; break;
-		case XK_Page_Down: qemu_keysym = QEMU_KEY_PAGEDOWN; break;
-		case XK_BackSpace: qemu_keysym = QEMU_KEY_BACKSPACE; break;
-		case XK_Delete: qemu_keysym = QEMU_KEY_DELETE; break;
-		case XK_Return:
-		case XK_Linefeed: qemu_keysym = sym; break;
-		case XK_Tab: qemu_keysym = 'I' & 0x1F; break;
-		case XK_Escape: qemu_keysym = 27; break;
-		default: break;
-		}
-	    }
-	    dprintf("ctrl sym %02x %02x\n", sym, qemu_keysym);
-
-	}
-	if (qemu_keysym != -1)
-	    vs->ds->kbd_put_keysym(qemu_keysym);
     }
 
-    if (down) {
-	switch (sym) {
-	case XK_Control_L:
-	    vs->ctl_keys |= 1;
-	    break;
-
-	case XK_Alt_L:
-	    vs->ctl_keys |= 2;
-	    break;
-
-	case XK_Shift_L:
-	    vs->shift_keys |= 1;
-	    break;
-
-	default:
-	    break;
-	}
+    if (vs->ds->graphic_mode) {
+        if (keycode & 0x80)
+            vs->ds->kbd_put_keycode(0xe0);
+        if (down)
+            vs->ds->kbd_put_keycode(keycode & 0x7f);
+        else
+            vs->ds->kbd_put_keycode(keycode | 0x80);
     } else {
-	switch (sym) {
-	case XK_Control_L:
-	    vs->ctl_keys &= ~1;
-	    break;
-
-	case XK_Alt_L:
-	    vs->ctl_keys &= ~2;
-	    break;
-
-	case XK_Shift_L:
-	    vs->shift_keys &= ~1;
-	    break;
-
-	case XK_Caps_Lock:
-	    vs->shift_keys ^= 2;
-	    break;
-
-	case XK_Num_Lock:
-	    vs->numlock = !vs->numlock;
-	    break;
-
-	case XK_1 ... XK_9:
-	    if ((vs->ctl_keys & 3) != 3)
-		break;
-
-#if 0
-	    console_select(sym - XK_1);
-	    if (vs->ds->graphic_mode) {
-		/* tell the vga console to redisplay itself */
-		if (vs->ds->hw_invalidate)
-		    vs->ds->hw_invalidate(vs->ds->hw_opaque);
-		vnc_dpy_update(vs->ds, 0, 0, vs->ds->width, vs->ds->height);
-	    }
-#endif
-	    break;
-	}
+        /* QEMU console emulation */
+        if (down) {
+	    int mod = 0;
+	    if (vs->modifiers_state[0x1d] || vs->modifiers_state[0x9d])
+		mod += QEMU_KEY_MOD_CTRL;
+            switch (keycode) {
+            case 0x2a:                          /* Left Shift */
+            case 0x36:                          /* Right Shift */
+            case 0x1d:                          /* Left CTRL */
+            case 0x9d:                          /* Right CTRL */
+            case 0x38:                          /* Left ALT */
+            case 0xb8:                          /* Right ALT */
+                break;
+            case 0xc8:
+                vs->ds->kbd_put_keysym(QEMU_KEY_UP + mod);
+                break;
+            case 0xd0:
+                vs->ds->kbd_put_keysym(QEMU_KEY_DOWN + mod);
+                break;
+            case 0xcb:
+                vs->ds->kbd_put_keysym(QEMU_KEY_LEFT + mod);
+                break;
+            case 0xcd:
+                vs->ds->kbd_put_keysym(QEMU_KEY_RIGHT + mod);
+                break;
+            case 0xd3:
+                vs->ds->kbd_put_keysym(QEMU_KEY_DELETE + mod);
+                break;
+            case 0xc7:
+                vs->ds->kbd_put_keysym(QEMU_KEY_HOME + mod);
+                break;
+            case 0xcf:
+                vs->ds->kbd_put_keysym(QEMU_KEY_END + mod);
+                break;
+            case 0xc9:
+                vs->ds->kbd_put_keysym(QEMU_KEY_PAGEUP + mod);
+                break;
+            case 0xd1:
+                vs->ds->kbd_put_keysym(QEMU_KEY_PAGEDOWN + mod);
+                break;
+            default:
+		if (vs->modifiers_state[0x1d] || vs->modifiers_state[0x9d])
+		    sym &= 0x1f;
+                vs->ds->kbd_put_keysym(sym);
+                break;
+            }
+        }
     }
 }
 
 static void key_event(VncState *vs, int down, uint32_t sym)
 {
-/*     if (sym >= 'A' && sym <= 'Z') */
-/* 	sym = sym - 'A' + 'a'; */
+    if (sym >= 'A' && sym <= 'Z' && vs->ds->graphic_mode)
+	sym = sym - 'A' + 'a';
     do_key_event(vs, down, sym);
 }
 
@@ -1118,6 +1144,8 @@ static void set_encodings(VncState *vs, int32_t *encodings, size_t n_encodings)
 
     vs->has_hextile = 0;
     vs->has_resize = 0;
+    vs->has_pointer_type_change = 0;
+    vs->absolute = -1;
     vs->ds->dpy_copy = NULL;
 
     for (i = n_encodings - 1; i >= 0; i--) {
@@ -1134,10 +1162,16 @@ static void set_encodings(VncState *vs, int32_t *encodings, size_t n_encodings)
 	case -223: /* DesktopResize */
 	    vs->has_resize = 1;
 	    break;
+	case -257:
+	    vs->has_pointer_type_change = 1;
+	    break;
 	default:
 	    break;
 	}
     }
+
+    check_pointer_type_change(vs,
+			      vs->ds->mouse_is_absolute(vs->ds->mouse_opaque));
 }
 
 static int compute_nbits(unsigned int val)
@@ -1478,11 +1512,12 @@ static void vnc_listen_read(void *opaque)
     }
 }
 
-int vnc_display_init(DisplayState *ds, int display, int find_unused,
-		     struct sockaddr_in *addr, char *title,
-		     char *keyboard_layout)
+int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
+		     int find_unused, char *title, char *keyboard_layout)
 {
+    struct sockaddr_in *iaddr = NULL;
     int reuse_addr, ret;
+    socklen_t addrlen;
     VncState *vs;
 
     vs = qemu_mallocz(sizeof(VncState));
@@ -1490,11 +1525,16 @@ int vnc_display_init(DisplayState *ds, int display, int find_unused,
 	exit(1);
 
     ds->opaque = vs;
+#if 0
+    vnc_state = vs;
+    vs->display = arg;
+#endif
 
     vs->lsock = -1;
     vs->csock = -1;
     vs->depth = 4;
-    vs->numlock = 0;
+    vs->last_x = -1;
+    vs->last_y = -1;
 
     vs->ds = ds;
 
@@ -1505,45 +1545,9 @@ int vnc_display_init(DisplayState *ds, int display, int find_unused,
     vs->kbd_layout = init_keyboard_layout(keyboard_layout);
     if (!vs->kbd_layout)
 	exit(1);
+    vs->modifiers_state[0x45] = 1; /* NumLock on - on boot */
 
     vs->title = strdup(title ?: "");
-
-    vs->lsock = socket(PF_INET, SOCK_STREAM, 0);
-    if (vs->lsock == -1) {
-	fprintf(stderr, "Could not create socket\n");
-	exit(1);
-    }
-
-    reuse_addr = 1;
-    ret = setsockopt(vs->lsock, SOL_SOCKET, SO_REUSEADDR,
-		     (const char *)&reuse_addr, sizeof(reuse_addr));
-    if (ret == -1) {
-	fprintf(stderr, "setsockopt() failed\n");
-	exit(1);
-    }
-
- retry:
-    addr->sin_family = AF_INET;
-    addr->sin_port = htons(5900 + display);
-
-    if (bind(vs->lsock, (struct sockaddr *)addr, sizeof(struct sockaddr_in)) == -1) {
-	if (find_unused && errno == EADDRINUSE) {
-	    display++;
-	    goto retry;
-	}
-	fprintf(stderr, "bind() failed\n");
-	exit(1);
-    }
-
-    if (listen(vs->lsock, 1) == -1) {
-	fprintf(stderr, "listen() failed\n");
-	exit(1);
-    }
-
-    ret = vs->ds->set_fd_handler(vs->lsock, NULL, vnc_listen_read,
-				 NULL, vs);
-    if (ret == -1)
-	exit(1);
 
     vs->ds->data = NULL;
     vs->ds->dpy_update = vnc_dpy_update;
@@ -1554,7 +1558,64 @@ int vnc_display_init(DisplayState *ds, int display, int find_unused,
 
     vnc_dpy_resize(vs->ds, 640, 400);
 
-    return display;
+#ifndef _WIN32
+    if (addr->sa_family == AF_UNIX) {
+	addrlen = sizeof(struct sockaddr_un);
+
+	vs->lsock = socket(PF_UNIX, SOCK_STREAM, 0);
+	if (vs->lsock == -1) {
+	    fprintf(stderr, "Could not create socket\n");
+	    exit(1);
+	}
+    } else
+#endif
+    if (addr->sa_family == AF_INET) {
+	iaddr = (struct sockaddr_in *)addr;
+	addrlen = sizeof(struct sockaddr_in);
+
+	vs->lsock = socket(PF_INET, SOCK_STREAM, 0);
+	if (vs->lsock == -1) {
+	    fprintf(stderr, "Could not create socket\n");
+	    exit(1);
+	}
+
+	iaddr->sin_port = htons(ntohs(iaddr->sin_port) + 5900);
+
+	reuse_addr = 1;
+	ret = setsockopt(vs->lsock, SOL_SOCKET, SO_REUSEADDR,
+			 (const char *)&reuse_addr, sizeof(reuse_addr));
+	if (ret == -1) {
+	    fprintf(stderr, "setsockopt() failed\n");
+	    exit(1);
+	}
+    } else {
+	fprintf(stderr, "Invalid socket family %x\n", addr->sa_family);
+	exit(1);
+    }
+
+    while (bind(vs->lsock, addr, addrlen) == -1) {
+	if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET) {
+	    iaddr->sin_port = htons(ntohs(iaddr->sin_port) + 1);
+	    continue;
+	}
+	fprintf(stderr, "bind() failed\n");
+	exit(1);
+    }
+
+    if (listen(vs->lsock, 1) == -1) {
+	fprintf(stderr, "listen() failed\n");
+	exit(1);
+    }
+
+    ret = vs->ds->set_fd_handler(vs->lsock, NULL, vnc_listen_read, NULL, vs);
+    if (ret == -1) {
+	exit(1);
+    }
+
+    if (addr->sa_family == AF_INET)
+	return ntohs(iaddr->sin_port);
+    else
+	return 0;
 }
 
 int vnc_start_viewer(int port)

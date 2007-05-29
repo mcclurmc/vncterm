@@ -1707,7 +1707,6 @@ void kbd_put_keysym(int keysym)
     if (!s || !s->text_console)
         return;
 
-
     switch(keysym) {
     case QEMU_KEY_CTRL_UP:
         console_scroll(-1);
