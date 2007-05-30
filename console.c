@@ -27,12 +27,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdarg.h>
-
-#ifdef DEBUG_CONSOLE
-#define dprintf printf
-#else
-#define dprintf(s, ...)
-#endif
+#include "debug.h"
 
 #define DEFAULT_BACKSCROLL 512
 #define MAX_CONSOLES 12

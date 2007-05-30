@@ -31,11 +31,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-#ifdef DEBUG_VNC
-#define dprintf printf
-#else
-#define dprintf(s, ...)
-#endif
+#include "../debug.h"
 
 /* The refresh interval starts at BASE.  If we scan the buffer and
    find no change, we increase by INC, up to MAX.  If the mouse moves

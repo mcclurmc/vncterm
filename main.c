@@ -42,6 +42,7 @@ char vncpasswd[64];
 unsigned char challenge[AUTHCHALLENGESIZE];
 
 DisplayState display_state;
+int do_log;
 
 static int dump_cells = 0;
 
@@ -260,6 +261,12 @@ static void
 handle_sigusr1(int signo)
 {
     dump_cells = 1;
+}
+
+static void
+handle_sigusr2(int signo)
+{
+    do_log = ~do_log;
 }
 
 struct pty {
@@ -513,6 +520,7 @@ main(int argc, char **argv, char **envp)
 	vncterm->pty = connect_pty(pty_path, vncterm->console);
 
     signal(SIGUSR1, handle_sigusr1);
+    signal(SIGUSR2, handle_sigusr2);
     signal(SIGCHLD, handle_sigchld);
 
     for (;;) {
