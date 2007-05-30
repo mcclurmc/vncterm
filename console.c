@@ -1060,11 +1060,14 @@ static void console_handle_escape(TextConsole *s)
                 s->t_attrib.fgcol=COLOR_WHITE;
                 break;
 	    case 38:
-		/* TODO: implement - set collors acording to x,y cursor position */
+		/* set to default foreground, underscore on */
+		s->t_attrib.fgcol=s->t_attrib_default.fgcol;
+		s->t_attrib.uline = 1;
 		break;
 	    case 39:
-		/* set to default */
+		/* set to default foreground, underscore off */
 		s->t_attrib.fgcol=s->t_attrib_default.fgcol;
+		s->t_attrib.uline = 0;
 		break;
             /* set background color */
             case 40:
