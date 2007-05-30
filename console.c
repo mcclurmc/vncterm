@@ -1060,8 +1060,11 @@ static void console_handle_escape(TextConsole *s)
                 s->t_attrib.fgcol=COLOR_WHITE;
                 break;
 	    case 38:
+		/* TODO: implement - set collors acording to x,y cursor position */
+		break;
 	    case 39:
-		// TODO: implement
+		/* set to default */
+		s->t_attrib.fgcol=s->t_attrib_default.fgcol;
 		break;
             /* set background color */
             case 40:
@@ -1088,6 +1091,13 @@ static void console_handle_escape(TextConsole *s)
             case 47:
                 s->t_attrib.bgcol=COLOR_WHITE;
                 break;
+	    case 48:
+		/* TODO: implement - set collors acording to x,y cursor position */
+		break;
+	    case 49:
+		/* set to default */
+		s->t_attrib.bgcol=s->t_attrib_default.bgcol;
+		break;
         }
     }
 }
