@@ -44,6 +44,8 @@
 #define G1	1
 #define UTF8	2
 
+static int utf8map[0xffff];
+
 typedef struct TextAttributes {
     uint8_t fgcol:4;
     uint8_t bgcol:4;
@@ -1205,14 +1207,14 @@ static void console_putchar(TextConsole *s, int ch)
 		    case 3: {
 			ch = ((s->unicodeData[0] & 0x0f) << 12) |
 				((s->unicodeData[1] & 0x3f) << 6) |
-				(s->unicodeData[2] & 0x3f);                        
+				(s->unicodeData[2] & 0x3f);
 			} 
 			break;
 		    case 4: {
 			ch = ((s->unicodeData[0] & 0x07) << 18) |
 				((s->unicodeData[1] & 0x3f) << 12) |
 				((s->unicodeData[2] & 0x3f) << 6) |
-				(s->unicodeData[3] & 0x3f);                        
+				(s->unicodeData[3] & 0x3f);
 			} 
 			break;
 		     default:
@@ -1220,15 +1222,11 @@ static void console_putchar(TextConsole *s, int ch)
 			break;
 		}
 		/* get it from lookup table, cp437_to_uni.trans */
-	/*
-		int cm = cmap_.get(c);
-		if (cm != null) {
-			ch = cm;
-		} else {
-			ch = 0;
-		}
+		dprintf("utf8: %x to: ", ch);
+		ch = utf8map[ch&0xffff];
 		s->unicodeIndex = 0;
-*/
+		dprintf("%x\n", ch);
+
 	    } 
 	    else {
 		if ((ch & 0xe0) == 0xc0) {
@@ -1790,7 +1788,7 @@ static void parse_unicode_map( int *map, char* filename )
 	ch=fgetc(f);
 	if (ch==EOF || ch=='\n' || ch=='\r') {
 		map[n[1]&0xffff]=n[0];
-		printf("%x %x\n", n[0], n[1] );
+		dprintf("utf8 map: %x %x\n", n[0], n[1] );
 		n[0]=n[1]=position=number=0;
 	}
 	else {
@@ -1960,6 +1958,8 @@ CharDriverState *text_console_init(DisplayState *ds)
     CharDriverState *chr;
     TextConsole *s;
     static int color_inited;
+
+    parse_unicode_map(utf8map, "/usr/share/xen/qemu/cp437_to_uni.trans");
 
     chr = qemu_mallocz(sizeof(CharDriverState));
     if (!chr)
