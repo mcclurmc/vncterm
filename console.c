@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <ctype.h>
 #include "debug.h"
 
 #define DEFAULT_BACKSCROLL 512
@@ -39,8 +40,9 @@
 #define	max(a,b) ((a) > (b) ? (a) : (b))
 
 /* fonts */
-#define G0 0
-#define G1 1
+#define G0	0
+#define G1	1
+#define UTF8	2
 
 typedef struct TextAttributes {
     uint8_t fgcol:4;
@@ -168,6 +170,12 @@ struct TextConsole {
     int mouse_select_y;
     int mouse_select_ex;
     int mouse_select_ey;
+
+/* unicode bits */
+    int unicodeIndex;
+    int unicodeData[4];
+    int unicodeLength;
+
 #if 0
     /* kbd read handler */
     IOCanRWHandler *fd_can_read; 
@@ -405,7 +413,6 @@ static inline unsigned int col_expand(DisplayState *ds, unsigned int col)
 
     return col;
 }
-#ifdef DEBUG_CONSOLE
 static void console_print_text_attributes(TextAttributes *t_attrib, char ch)
 {
     if (t_attrib->bold) {
@@ -436,7 +443,6 @@ static void console_print_text_attributes(TextAttributes *t_attrib, char ch)
 
     printf(" fg: %d bg: %d ch:'%2X' '%c'\n", t_attrib->fgcol, t_attrib->bgcol, ch, ch);
 }
-#endif
 
 static void vga_putcharxy(TextConsole *s, int x, int y, int ch, 
                           TextAttributes *t_attrib, CellAttributes *c_attrib)
@@ -448,12 +454,9 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
     unsigned int fgcol, bgcol;
     DisplayState *ds = s->ds;
 
-#ifdef DEBUG_CONSOLE
-//    printf("x: %2i y: %2i", x, y);
- if (0)
+    printf("x: %2i y: %2i", x, y);
     console_print_text_attributes(t_attrib, ch);
-    dprintf("using font nr %d\n", t_attrib->font);
-#endif
+    dprintf("font:%d\n", t_attrib->font);
 
     if (t_attrib->invers ^ c_attrib->highlit ^
 	((s->cursor_visible && x == s->x && y == s->y) ||
@@ -1181,6 +1184,75 @@ static void console_putchar(TextConsole *s, int ch)
             break;
 
         default:
+/* utf 8 bit */
+
+	    if (s->unicodeIndex > 0) {
+		if ((ch & 0xc0) != 0x80) {
+		    /*TODO:complain here */
+		    dprintf("bogus unicode data %u\n", ch);
+		    return;
+		}
+		s->unicodeData[s->unicodeIndex++] = ch;
+		if (s->unicodeIndex < s->unicodeLength) {
+		    return;
+		}
+		switch (s->unicodeLength) {
+		    case 2: {
+			ch = ((s->unicodeData[0] & 0x1f) << 6) |
+				(s->unicodeData[1] & 0x3f);
+			} 
+			break;
+		    case 3: {
+			ch = ((s->unicodeData[0] & 0x0f) << 12) |
+				((s->unicodeData[1] & 0x3f) << 6) |
+				(s->unicodeData[2] & 0x3f);                        
+			} 
+			break;
+		    case 4: {
+			ch = ((s->unicodeData[0] & 0x07) << 18) |
+				((s->unicodeData[1] & 0x3f) << 12) |
+				((s->unicodeData[2] & 0x3f) << 6) |
+				(s->unicodeData[3] & 0x3f);                        
+			} 
+			break;
+		     default:
+			dprintf("bogus unicode length %u\n", s->unicodeLength);
+			break;
+		}
+		/* get it from lookup table, cp437_to_uni.trans */
+	/*
+		int cm = cmap_.get(c);
+		if (cm != null) {
+			ch = cm;
+		} else {
+			ch = 0;
+		}
+		s->unicodeIndex = 0;
+*/
+	    } 
+	    else {
+		if ((ch & 0xe0) == 0xc0) {
+		    s->unicodeData[0] = ch;
+		    s->unicodeIndex = 1;
+		    s->unicodeLength = 2;
+		    return;
+		} 
+		else
+		if ((ch & 0xf0) == 0xe0) {
+		    s->unicodeData[0] = ch;
+		    s->unicodeIndex = 1;
+		    s->unicodeLength = 3;
+		    return;
+		} else
+		if ((ch & 0xf8) == 0xf0) {
+		    s->unicodeData[0] = ch;
+		    s->unicodeIndex = 1;
+		    s->unicodeLength = 4;
+		    return;
+		}
+	    }
+/* end of utf 8 bit */
+
 	    put_norm(ch);
 	    if (s->wrapped) {
 		set_cursor(s, s->y, 0);
@@ -1225,6 +1297,21 @@ static void console_putchar(TextConsole *s, int ch)
 	    break;
 	/* charset selection */
 	case '%':
+	    if ( s->nb_esc_params < 1 ) {
+		break;
+	    }
+	    switch(s->esc_params[0]) {
+		/* set default G0 */
+		case '@':
+		    s->t_attrib.font = G0;
+		    break;
+		/* utf8 */
+		case 'G':
+		case '8':
+		    s->t_attrib.font = UTF8;
+		    break;
+	    }
+	    break;
 	case '(': /* G0 charset */
 	case ')': /* G1 charset */
 	case '+':
@@ -1241,12 +1328,10 @@ static void console_putchar(TextConsole *s, int ch)
 			break;
 		    }
 		}
-#ifdef DEBUG_CONSOLE
 		dprintf("charset stuff %c/%d, params: ", ch, ch);
 		for (i = 0; i < s->nb_esc_params; i++)
 		    dprintf(" %0x/%d", s->esc_params[i], s->esc_params[i]);
 		dprintf("\n");
-#endif
 	    break;
 	case '[': /* CSI */
             for(i=0;i<MAX_ESC_PARAMS;i++)
@@ -1298,7 +1383,6 @@ static void console_putchar(TextConsole *s, int ch)
 	    }
             if (ch == ';')
                 break;
-#ifdef DEBUG_CONSOLE
 	    dprintf("csi %x[%c] with args", ch,
 		   ch > 0x1f ? ch : ' ');
 	    if (s->has_qmark)
@@ -1306,7 +1390,6 @@ static void console_putchar(TextConsole *s, int ch)
 	    for (i = 0; i < s->nb_esc_params; i++)
 		dprintf(" 0x%0x/%d", s->esc_params[i], s->esc_params[i]);
 	    dprintf("\n");
-#endif
             s->state = TTY_STATE_NORM;
             switch(ch) {
 	    case '@': /* ins del characters */
@@ -1584,13 +1667,11 @@ static void console_putchar(TextConsole *s, int ch)
 		    va_write(s, "\033[2;1;1;120;120;1;0x");
 		break;
             default:
-#ifdef DEBUG_CONSOLE
 		dprintf("unknown command %x[%c] with args", ch,
 		       ch > 0x1f ? ch : ' ');
 		for (i = 0; i < s->nb_esc_params; i++)
 		    dprintf(" %0x/%d", s->esc_params[i], s->esc_params[i]);
 		dprintf("\n");
-#endif
                 break;
             }
             break;
@@ -1875,6 +1956,8 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->t_attrib_default.used = 0;
     s->t_attrib_default.font = G0;
     s->c_attrib_default.highlit = 0;
+    s->unicodeIndex = 0;
+    s->unicodeLength = 0;
 
     /* set current text attributes to default */
     s->t_attrib = s->t_attrib_default;
@@ -1902,3 +1985,4 @@ console_input_fd(CharDriverState *chr)
 
     return s->input_stream.fd;
 }
+
