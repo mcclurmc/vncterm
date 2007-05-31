@@ -1764,6 +1764,57 @@ static void kbd_send_chars(void *opaque)
 }
 #endif
 
+/* this perhaps wastes 0xff00 bytes, 
+   but saves us a need to write hashing function just to map utf8 code to font
+*/
+static void parse_unicode_map( int *map, char* filename )
+{
+    FILE* f;
+    int ch, n[2], number, position;
+
+    memset(map, 0, sizeof(int)*0xffff);
+
+    f=fopen(filename, "rb");
+    if (f==NULL)
+	return;
+
+    /* the file structure is simple: 
+	X\tY.*
+	.....
+	we only care about X and Y
+    */
+
+    n[0]=n[1]=position=number=0;
+
+    do{
+	ch=fgetc(f);
+	if (ch==EOF || ch=='\n' || ch=='\r') {
+		map[n[1]&0xffff]=n[0];
+		printf("%x %x\n", n[0], n[1] );
+		n[0]=n[1]=position=number=0;
+	}
+	else {
+		if (ch=='\t') {
+		    number++;
+		    position=0;
+		}
+		else {
+		    if (number<2) {
+			if (ch-'0' > 9 ) {
+			    ch=tolower(ch);
+			    ch=ch-'a'+10;
+			}
+			else {
+			    ch=ch-'0';
+			}
+			n[number]=(n[number]*16)+ch;
+		    }
+		}
+		
+	}
+    }while(ch!=EOF);
+}
+
 void dump_console_to_file(CharDriverState *chr, char *fn)
 {
     FILE* f;
