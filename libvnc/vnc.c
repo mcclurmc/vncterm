@@ -1114,6 +1114,9 @@ static void key_event(VncState *vs, int down, uint32_t sym)
 static void scan_event(VncState *vs, int down, uint32_t code)
 {
 
+    /* Prefix with 0xe0 if high bit set, except for NumLock key. */
+    if (code & 0x80 && code != 0xc5)
+	vs->ds->kbd_put_keycode(0xe0);
     if (down)
 	vs->ds->kbd_put_keycode(code & 0x7f);
     else
