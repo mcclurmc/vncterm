@@ -1,6 +1,3 @@
-#ifdef DEBUG
-#define DEBUG_CONSOLE
-#endif
 
 #include <stdint.h>
 #include <stdlib.h>
