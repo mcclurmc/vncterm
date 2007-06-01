@@ -31,7 +31,12 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-#include "../debug.h"
+// #define DEBUG_VNC
+#ifdef DEBUG_VNC
+#define dprintf(s, ...) printf(s, ## __VA_ARGS__)
+#else
+#define dprintf(s, ...)
+#endif
 
 /* The refresh interval starts at BASE.  If we scan the buffer and
    find no change, we increase by INC, up to MAX.  If the mouse moves
@@ -282,6 +287,7 @@ static void vnc_send_resize(DisplayState *ds)
     if (!vs->send_resize)
         return;
 
+    dprintf("send resize\n");
     vs->send_resize = 0;
     vnc_write_u8(vs, 0);  /* msg id */
     vnc_write_u8(vs, 0);
@@ -664,6 +670,7 @@ static void _vnc_update_client(void *opaque)
 	       it needs one or not.  Fix this by sending a single 1x1
 	       update rectangle instead. */
             vnc_send_resize(vs->ds);
+            dprintf("send null update\n");
 	    vnc_write_u8(vs, 0);
 	    vnc_write_u8(vs, 0);
 	    vnc_write_u16(vs, 1);
@@ -777,6 +784,7 @@ static int vnc_client_io_error(VncState *vs, int ret, int last_errno)
 	if (ret == -1 && (last_errno == EINTR || last_errno == EAGAIN))
 	    return 0;
 
+	dprintf("vnc_client_io_error\n");
 	vs->ds->set_fd_handler(vs->csock, NULL, NULL, NULL, NULL);
 	closesocket(vs->csock);
 	vs->csock = -1;
@@ -806,8 +814,10 @@ static void vnc_client_write(void *opaque)
 	    vs->output.offset - ret);
     vs->output.offset -= ret;
 
-    if (vs->output.offset == 0)
+    if (vs->output.offset == 0) {
+	dprintf("disable write\n");
 	vs->ds->set_fd_handler(vs->csock, NULL, vnc_client_read, NULL, vs);
+    }
 }
 
 static void vnc_read_when(VncState *vs, VncReadEvent *func, size_t expecting)
@@ -853,9 +863,11 @@ static void vnc_write(VncState *vs, const void *data, size_t len)
 {
     buffer_reserve(&vs->output, len);
 
-    if (buffer_empty(&vs->output))
+    if (buffer_empty(&vs->output)) {
+	dprintf("enable write\n");
 	vs->ds->set_fd_handler(vs->csock, NULL, vnc_client_read,
 			       vnc_client_write, vs);
+    }
 
     buffer_append(&vs->output, data, len);
 }
@@ -925,6 +937,7 @@ static void client_cut_text(VncState *vs, size_t len, char *text)
 static void check_pointer_type_change(VncState *vs, int absolute)
 {
     if (vs->has_pointer_type_change && vs->absolute != absolute) {
+	dprintf("pointer type change\n");
 	vnc_write_u8(vs, 0);
 	vnc_write_u8(vs, 0);
 	vnc_write_u16(vs, 1);
@@ -1218,6 +1231,8 @@ static void set_pixel_format(VncState *vs,
         vs->depth = 4;
         vs->write_pixels = vnc_write_pixels_copy;
         vs->send_hextile_tile = send_hextile_tile_32;
+        dprintf("set pixel format bpp %d depth %d copy\n", bits_per_pixel,
+		vs->depth);
     } else 
     if (bits_per_pixel == 16 && 
         host_big_endian_flag == big_endian_flag &&
@@ -1226,6 +1241,8 @@ static void set_pixel_format(VncState *vs,
         vs->depth = 2;
         vs->write_pixels = vnc_write_pixels_copy;
         vs->send_hextile_tile = send_hextile_tile_16;
+        dprintf("set pixel format bpp %d depth %d copy\n", bits_per_pixel,
+		vs->depth);
     } else 
     if (bits_per_pixel == 8 && 
         red_max == 7 && green_max == 7 && blue_max == 3 &&
@@ -1233,6 +1250,8 @@ static void set_pixel_format(VncState *vs,
         vs->depth = 1;
         vs->write_pixels = vnc_write_pixels_copy;
         vs->send_hextile_tile = send_hextile_tile_8;
+        dprintf("set pixel format bpp %d depth %d copy\n", bits_per_pixel,
+		vs->depth);
     } else 
     {
         /* generic and slower case */
@@ -1254,6 +1273,8 @@ static void set_pixel_format(VncState *vs,
         vs->pix_big_endian = big_endian_flag;
         vs->write_pixels = vnc_write_pixels_generic;
         vs->send_hextile_tile = send_hextile_tile_generic;
+        dprintf("set pixel format bpp %d depth %d generic\n", bits_per_pixel,
+                vs->depth);
     }
 
     vnc_dpy_resize(vs->ds, vs->ds->width, vs->ds->height);
@@ -1365,6 +1386,7 @@ static int protocol_client_init(VncState *vs, uint8_t *data, size_t len)
     if (vs->ds->hw_update)
 	vs->ds->hw_update(vs->ds->hw_opaque);
 
+    dprintf("client init\n");
     vnc_write_u16(vs, vs->ds->width);
     vnc_write_u16(vs, vs->ds->height);
 
@@ -1445,6 +1467,7 @@ static int protocol_response(VncState *vs, uint8_t *client_response, size_t len)
 	return 0;
     }
 
+    dprintf("protocol response\n");
     vnc_write_u32(vs, 0);
     vnc_flush(vs);
 
@@ -1485,6 +1508,7 @@ static int protocol_version(VncState *vs, uint8_t *version, size_t len)
 	return 0;
     }
 
+    dprintf("authentication\n");
     if (*vncpasswd == '\0') {
 	/* AuthType is None */
 	vnc_write_u32(vs, 1);
@@ -1518,6 +1542,7 @@ static void vnc_listen_read(void *opaque)
 	vs->csock = new_sock;
         socket_set_nonblock(vs->csock);
 	vs->ds->set_fd_handler(vs->csock, NULL, vnc_client_read, NULL, opaque);
+	dprintf("rfb greeting\n");
 	vnc_write(vs, "RFB 003.003\n", 12);
 	vnc_flush(vs);
 	vnc_read_when(vs, protocol_version, 12);
