@@ -437,6 +437,8 @@ static inline unsigned int col_expand(DisplayState *ds, unsigned int col)
 
     return col;
 }
+
+#ifdef CONSOLE_DEBUG
 static void console_print_text_attributes(TextAttributes *t_attrib, char ch)
 {
     if (t_attrib->bold) {
@@ -467,6 +469,7 @@ static void console_print_text_attributes(TextAttributes *t_attrib, char ch)
 
     printf(" fg: %d bg: %d ch:'%2X' '%c'\n", t_attrib->fgcol, t_attrib->bgcol, ch, ch);
 }
+#endif
 
 static void vga_putcharxy(TextConsole *s, int x, int y, int ch, 
                           TextAttributes *t_attrib, CellAttributes *c_attrib)
