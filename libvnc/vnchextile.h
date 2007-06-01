@@ -8,13 +8,13 @@
 #endif
 
 static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
-                                             int x, int y, int w, int h,
+                                             uint8_t *data, int stride,
+                                             int w, int h,
                                              uint32_t *last_bg32, 
                                              uint32_t *last_fg32,
                                              int *has_bg, int *has_fg)
 {
-    uint8_t *row = (vs->ds->data + y * vs->ds->linesize + x * vs->depth);
-    pixel_t *irow = (pixel_t *)row;
+    pixel_t *irow = (pixel_t *)data;
     int j, i;
     pixel_t *last_bg = (pixel_t *)last_bg32;
     pixel_t *last_fg = (pixel_t *)last_fg32;
@@ -24,8 +24,8 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
     int bg_count = 0;
     int fg_count = 0;
     int flags = 0;
-    uint8_t data[(sizeof(pixel_t) + 2) * 16 * 16];
-    int n_data = 0;
+    uint8_t pdata[(sizeof(pixel_t) + 2) * 16 * 16];
+    int n_pdata = 0;
     int n_subtiles = 0;
 
     for (j = 0; j < h; j++) {
@@ -57,7 +57,7 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 	}
 	if (n_colors > 2)
 	    break;
-	irow += vs->ds->linesize / sizeof(pixel_t);
+	irow += stride / sizeof(pixel_t);
     }
 
     if (n_colors > 1 && fg_count > bg_count) {
@@ -80,12 +80,12 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 
     switch (n_colors) {
     case 1:
-	n_data = 0;
+	n_pdata = 0;
 	break;
     case 2:
 	flags |= 0x08;
 
-	irow = (pixel_t *)row;
+	irow = (pixel_t *)data;
 	
 	for (j = 0; j < h; j++) {
 	    int min_x = -1;
@@ -94,24 +94,24 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 		    if (min_x == -1)
 			min_x = i;
 		} else if (min_x != -1) {
-		    hextile_enc_cord(data + n_data, min_x, j, i - min_x, 1);
-		    n_data += 2;
+		    hextile_enc_cord(pdata + n_pdata, min_x, j, i - min_x, 1);
+		    n_pdata += 2;
 		    n_subtiles++;
 		    min_x = -1;
 		}
 	    }
 	    if (min_x != -1) {
-		hextile_enc_cord(data + n_data, min_x, j, i - min_x, 1);
-		n_data += 2;
+		hextile_enc_cord(pdata + n_pdata, min_x, j, i - min_x, 1);
+		n_pdata += 2;
 		n_subtiles++;
 	    }
-	    irow += vs->ds->linesize / sizeof(pixel_t);
+	    irow += stride / sizeof(pixel_t);
 	}
 	break;
     case 3:
 	flags |= 0x18;
 
-	irow = (pixel_t *)row;
+	irow = (pixel_t *)data;
 
 	if (!*has_bg || *last_bg != bg)
 	    flags |= 0x02;
@@ -131,14 +131,14 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 		} else if (irow[i] != color) {
 		    has_color = 0;
 #ifdef GENERIC
-                    vnc_convert_pixel(vs, data + n_data, color);
-                    n_data += vs->pix_bpp;
+                    vnc_convert_pixel(vs, pdata + n_pdata, color);
+                    n_pdata += vs->pix_bpp;
 #else
-		    memcpy(data + n_data, &color, sizeof(color));
-                    n_data += sizeof(pixel_t);
+		    memcpy(pdata + n_pdata, &color, sizeof(color));
+                    n_pdata += sizeof(pixel_t);
 #endif
-		    hextile_enc_cord(data + n_data, min_x, j, i - min_x, 1);
-		    n_data += 2;
+		    hextile_enc_cord(pdata + n_pdata, min_x, j, i - min_x, 1);
+		    n_pdata += 2;
 		    n_subtiles++;
 
 		    min_x = -1;
@@ -151,22 +151,22 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 	    }
 	    if (has_color) {
 #ifdef GENERIC
-                vnc_convert_pixel(vs, data + n_data, color);
-                n_data += vs->pix_bpp;
+                vnc_convert_pixel(vs, pdata + n_pdata, color);
+                n_pdata += vs->pix_bpp;
 #else
-                memcpy(data + n_data, &color, sizeof(color));
-                n_data += sizeof(pixel_t);
+                memcpy(pdata + n_pdata, &color, sizeof(color));
+                n_pdata += sizeof(pixel_t);
 #endif
-		hextile_enc_cord(data + n_data, min_x, j, i - min_x, 1);
-		n_data += 2;
+		hextile_enc_cord(pdata + n_pdata, min_x, j, i - min_x, 1);
+		n_pdata += 2;
 		n_subtiles++;
 	    }
-	    irow += vs->ds->linesize / sizeof(pixel_t);
+	    irow += stride / sizeof(pixel_t);
 	}
 
 	/* A SubrectsColoured subtile invalidates the foreground color */
 	*has_fg = 0;
-	if (n_data > (w * h * sizeof(pixel_t))) {
+	if (n_pdata > (w * h * sizeof(pixel_t))) {
 	    n_colors = 4;
 	    flags = 0x01;
 	    *has_bg = 0;
@@ -193,12 +193,12 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 	    vs->write_pixels(vs, last_fg, sizeof(pixel_t));
 	if (n_subtiles) {
 	    vnc_write_u8(vs, n_subtiles);
-	    vnc_write(vs, data, n_data);
+	    vnc_write(vs, pdata, n_pdata);
 	}
     } else {
 	for (j = 0; j < h; j++) {
-	    vs->write_pixels(vs, row, w * vs->depth);
-	    row += vs->ds->linesize;
+	    vs->write_pixels(vs, data, w * vs->depth);
+	    data += stride;
 	}
     }
 }
