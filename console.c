@@ -857,6 +857,8 @@ static void clear(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
     while (from_y * s->width + from_x < end) {
 	c->ch = ' ';
 	c->t_attrib = s->t_attrib_default;
+	c->t_attrib.fgcol = s->t_attrib.fgcol;
+	c->t_attrib.bgcol = s->t_attrib.bgcol;
 	update_xy(s, from_x, from_y);
 	c++;
 	from_x++;
