@@ -1840,7 +1840,7 @@ static void parse_unicode_map( char* filename )
 		}
 		
 	}
-    }while(ch!=EOF);
+    }while(ch!=EOF && entry<256);
 
     /*
 	now we have to sort it, in order to prepare for binary search 
