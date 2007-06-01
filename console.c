@@ -490,11 +490,11 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
 	((s->cursor_visible && x == s->x && y == s->y) ||
 	 (s->display_mouse && x == s->mouse_x && y == s->mouse_y)))
     {
-        bgcol = color_table[t_attrib->bold][t_attrib->fgcol];
+        bgcol = color_table[0][t_attrib->fgcol];
         fgcol = color_table[t_attrib->bold][t_attrib->bgcol];
     } else {
         fgcol = color_table[t_attrib->bold][t_attrib->fgcol];
-        bgcol = color_table[t_attrib->bold][t_attrib->bgcol];
+        bgcol = color_table[0][t_attrib->bgcol];
     }
 
     bpp = (ds->depth + 7) >> 3;
