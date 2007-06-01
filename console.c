@@ -1052,6 +1052,17 @@ static void console_handle_escape(TextConsole *s)
             case 8:
                 s->t_attrib.unvisible = 1;
                 break;
+/*
+10  reset selected mapping, display control flag,
+  and toggle meta flag.
+  11  select null mapping, set display control flag,
+  reset toggle meta flag.
+  12  select null mapping, set display control flag,
+  set toggle meta flag. (The toggle meta flag
+  causes the high bit of a byte to be toggled
+  before the mapping table translation is done.)
+  21  set normal intensity (this is not compatible with ECMA-48)
+*/
             case 22:
                 s->t_attrib.bold = 0;
                 break;
