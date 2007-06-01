@@ -438,38 +438,36 @@ static inline unsigned int col_expand(DisplayState *ds, unsigned int col)
     return col;
 }
 
-#ifdef CONSOLE_DEBUG
 static void console_print_text_attributes(TextAttributes *t_attrib, char ch)
 {
     if (t_attrib->bold) {
-        printf("b");
+        dprintf("b");
     } else {
-        printf(" ");
+        dprintf(" ");
     }
     if (t_attrib->uline) {
-        printf("u");
+        dprintf("u");
     } else {
-        printf(" ");
+        dprintf(" ");
     }
     if (t_attrib->blink) {
-        printf("l");
+        dprintf("l");
     } else {
-        printf(" ");
+        dprintf(" ");
     }
     if (t_attrib->invers) {
-        printf("i");
+        dprintf("i");
     } else {
-        printf(" ");
+        dprintf(" ");
     }
     if (t_attrib->unvisible) {
-        printf("n");
+        dprintf("n");
     } else {
-        printf(" ");
+        dprintf(" ");
     }
 
-    printf(" fg: %d bg: %d ch:'%2X' '%c'\n", t_attrib->fgcol, t_attrib->bgcol, ch, ch);
+    dprintf(" fg: %d bg: %d ch:'%2X' '%c'\n", t_attrib->fgcol, t_attrib->bgcol, ch, ch);
 }
-#endif
 
 static void vga_putcharxy(TextConsole *s, int x, int y, int ch, 
                           TextAttributes *t_attrib, CellAttributes *c_attrib)
@@ -481,11 +479,9 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
     unsigned int fgcol, bgcol;
     DisplayState *ds = s->ds;
 
-#ifdef CONSOLE_DEBUG
     dprintf("x: %2i y: %2i", x, y);
     console_print_text_attributes(t_attrib, ch);
     dprintf("font:%d\n", t_attrib->font);
-#endif
 
     if (t_attrib->invers ^ c_attrib->highlit ^
 	((s->cursor_visible && x == s->x && y == s->y) ||
