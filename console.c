@@ -440,6 +440,9 @@ static inline unsigned int col_expand(DisplayState *ds, unsigned int col)
 
 static void console_print_text_attributes(TextAttributes *t_attrib, char ch)
 {
+    if (!do_log)
+	return;
+
     if (t_attrib->bold) {
         dprintf("b");
     } else {
