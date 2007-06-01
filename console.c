@@ -44,7 +44,7 @@
 #define G1	1
 #define UTF8	2
 
-static int utf8map[0xffff];
+static int utf8map[256];
 
 typedef struct TextAttributes {
     uint8_t fgcol:4;
@@ -397,6 +397,28 @@ static const uint32_t color_table_rgb[2][8] = {
         QEMU_RGB(0xff, 0xff, 0xff),  /* white */
     }
 };
+
+#define UTFVAL(A) (utf8map[A]&0xffff)
+/* simplest binary search */
+static int get_glyphcode( int utf) {
+    int low = 0, high = 255, mid;
+    int h=0;
+
+    while(low <= high) {
+	h++;
+	mid = (low + high) / 2;
+	if (UTFVAL(mid) > utf)
+	    high = mid - 1;
+	else 
+	if (UTFVAL(mid) < utf)
+	    low = mid + 1;
+	else {
+	    dprintf("binsearch lookups: %d\n", h);
+	    return (utf8map[mid]>>16)&0xff;
+        }
+    }
+    return 0;
+}
 
 static inline unsigned int col_expand(DisplayState *ds, unsigned int col)
 {
@@ -1131,7 +1153,7 @@ static void console_putchar(TextConsole *s, int ch)
 {
     TextCell *c, *d;
     int y1, i, x, x1, a;
-    int x_, y_;
+    int x_, y_, och;
 
     dprintf("putchar %d '%c' state:%d \n", ch, ch, s->state);
 
@@ -1222,10 +1244,10 @@ static void console_putchar(TextConsole *s, int ch)
 			break;
 		}
 		/* get it from lookup table, cp437_to_uni.trans */
-		dprintf("utf8: %x to: ", ch);
-		ch = utf8map[ch&0xffff];
+		och=ch;
+		ch = get_glyphcode(ch);
 		s->unicodeIndex = 0;
-		dprintf("%x\n", ch);
+		dprintf("utf8: %x to: %x\n", och, ch);
 
 	    } 
 	    else {
@@ -1762,15 +1784,23 @@ static void kbd_send_chars(void *opaque)
 }
 #endif
 
-/* this perhaps wastes 0xff00 bytes, 
-   but saves us a need to write hashing function just to map utf8 code to font
-*/
-static void parse_unicode_map( int *map, char* filename )
+static 
+int cmputfents(const void *p1, const void *p2)
+{
+    short a,b;
+
+    a=*(short*)p1;
+    b=*(short*)p2;
+
+    return a-b;
+}
+
+static void parse_unicode_map( char* filename )
 {
     FILE* f;
-    int ch, n[2], number, position;
+    int ch, n[2], number, position, entry;
 
-    memset(map, 0, sizeof(int)*0xffff);
+    memset(utf8map, 0, sizeof(int)*256);
 
     f=fopen(filename, "rb");
     if (f==NULL)
@@ -1782,12 +1812,12 @@ static void parse_unicode_map( int *map, char* filename )
 	we only care about X and Y
     */
 
-    n[0]=n[1]=position=number=0;
+    n[0]=n[1]=position=number=entry=0;
 
     do{
 	ch=fgetc(f);
 	if (ch==EOF || ch=='\n' || ch=='\r') {
-		map[n[1]&0xffff]=n[0];
+		utf8map[entry++]=(n[1]&0xffff)|(n[0]<<16);
 		dprintf("utf8 map: %x %x\n", n[0], n[1] );
 		n[0]=n[1]=position=number=0;
 	}
@@ -1811,6 +1841,12 @@ static void parse_unicode_map( int *map, char* filename )
 		
 	}
     }while(ch!=EOF);
+
+    /*
+	now we have to sort it, in order to prepare for binary search 
+    */
+    qsort( utf8map, 256, sizeof(int), cmputfents );
+
 }
 
 void dump_console_to_file(CharDriverState *chr, char *fn)
@@ -1959,7 +1995,7 @@ CharDriverState *text_console_init(DisplayState *ds)
     TextConsole *s;
     static int color_inited;
 
-    parse_unicode_map(utf8map, "/usr/share/xen/qemu/cp437_to_uni.trans");
+    parse_unicode_map("/usr/share/xen/qemu/cp437_to_uni.trans");
 
     chr = qemu_mallocz(sizeof(CharDriverState));
     if (!chr)
