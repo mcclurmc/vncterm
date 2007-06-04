@@ -42,7 +42,6 @@
 /* fonts */
 #define G0	0
 #define G1	1
-#define UTF8	2
 
 static int utf8map[256];
 
@@ -55,7 +54,8 @@ typedef struct TextAttributes {
     uint8_t invers:1;
     uint8_t unvisible:1;
     uint8_t used:1;
-    uint8_t font:3;
+    uint8_t font:2;
+    uint8_t codec:1; /* utf8 or not */
 } TextAttributes;
 
 typedef struct CellAttributes {
@@ -490,11 +490,11 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
 	((s->cursor_visible && x == s->x && y == s->y) ||
 	 (s->display_mouse && x == s->mouse_x && y == s->mouse_y)))
     {
-        bgcol = color_table[t_attrib->bold][t_attrib->fgcol];
+        bgcol = color_table[0][t_attrib->fgcol];
         fgcol = color_table[t_attrib->bold][t_attrib->bgcol];
     } else {
         fgcol = color_table[t_attrib->bold][t_attrib->fgcol];
-        bgcol = color_table[t_attrib->bold][t_attrib->bgcol];
+        bgcol = color_table[0][t_attrib->bgcol];
     }
 
     bpp = (ds->depth + 7) >> 3;
@@ -1226,68 +1226,67 @@ static void console_putchar(TextConsole *s, int ch)
 
         default:
 /* utf 8 bit */
-
-	    if (s->unicodeIndex > 0) {
-		if ((ch & 0xc0) != 0x80) {
-		    /*TODO:complain here */
-		    dprintf("bogus unicode data %u\n", ch);
-		    return;
-		}
-		s->unicodeData[s->unicodeIndex++] = ch;
-		if (s->unicodeIndex < s->unicodeLength) {
-		    return;
-		}
-		switch (s->unicodeLength) {
-		    case 2: {
-			ch = ((s->unicodeData[0] & 0x1f) << 6) |
+	    if (s->t_attrib.codec) {
+		if (s->unicodeIndex > 0) {
+		    if ((ch & 0xc0) != 0x80) {
+			/*TODO:complain here */
+			dprintf("bogus unicode data %u\n", ch);
+			return;
+		    }
+		    s->unicodeData[s->unicodeIndex++] = ch;
+		    if (s->unicodeIndex < s->unicodeLength) {
+			return;
+		    }
+		    switch (s->unicodeLength) {
+			case 2:
+			    ch = ((s->unicodeData[0] & 0x1f) << 6) |
 				(s->unicodeData[1] & 0x3f);
-			} 
-			break;
-		    case 3: {
-			ch = ((s->unicodeData[0] & 0x0f) << 12) |
+			    break;
+			case 3:
+			    ch = ((s->unicodeData[0] & 0x0f) << 12) |
 				((s->unicodeData[1] & 0x3f) << 6) |
-				(s->unicodeData[2] & 0x3f);
-			} 
-			break;
-		    case 4: {
-			ch = ((s->unicodeData[0] & 0x07) << 18) |
+				(s->unicodeData[2] & 0x3f); 
+			    break;
+			case 4:
+ 			    ch = ((s->unicodeData[0] & 0x07) << 18) |
 				((s->unicodeData[1] & 0x3f) << 12) |
 				((s->unicodeData[2] & 0x3f) << 6) |
 				(s->unicodeData[3] & 0x3f);
-			} 
+			    break;
+			default:
+			    dprintf("bogus unicode length %u\n", s->unicodeLength);
 			break;
-		     default:
-			dprintf("bogus unicode length %u\n", s->unicodeLength);
-			break;
-		}
-		/* get it from lookup table, cp437_to_uni.trans */
-		och=ch;
-		ch = get_glyphcode(ch);
-		s->unicodeIndex = 0;
-		dprintf("utf8: %x to: %x\n", och, ch);
-
-	    } 
-	    else {
-		if ((ch & 0xe0) == 0xc0) {
-		    s->unicodeData[0] = ch;
-		    s->unicodeIndex = 1;
-		    s->unicodeLength = 2;
-		    return;
+		    }
+		    /* get it from lookup table, cp437_to_uni.trans */
+		    och=ch;
+		    ch = get_glyphcode(ch);
+		    s->unicodeIndex = 0;
+		    dprintf("utf8: %x to: %x\n", och, ch);	
 		} 
-		else
-		if ((ch & 0xf0) == 0xe0) {
-		    s->unicodeData[0] = ch;
-		    s->unicodeIndex = 1;
-		    s->unicodeLength = 3;
-		    return;
-		} else
-		if ((ch & 0xf8) == 0xf0) {
-		    s->unicodeData[0] = ch;
-		    s->unicodeIndex = 1;
-		    s->unicodeLength = 4;
-		    return;
+		else {
+		    if ((ch & 0xe0) == 0xc0) {
+			s->unicodeData[0] = ch;
+			s->unicodeIndex = 1;
+			s->unicodeLength = 2;
+			return;
+		    } 
+		    else
+		    if ((ch & 0xf0) == 0xe0) {
+			s->unicodeData[0] = ch;
+			s->unicodeIndex = 1;
+			s->unicodeLength = 3;
+			return;
+		    } 
+		    else
+		    if ((ch & 0xf8) == 0xf0) {
+			s->unicodeData[0] = ch;
+			s->unicodeIndex = 1;
+			s->unicodeLength = 4;
+			return;
+		    }
 		}
 	    }
+
 /* end of utf 8 bit */
 
 	    put_norm(ch);
@@ -1340,12 +1339,12 @@ static void console_putchar(TextConsole *s, int ch)
 	    switch(s->esc_params[0]) {
 		/* set default G0 */
 		case '@':
-		    s->t_attrib.font = G0;
+		    s->t_attrib.codec = 0;
 		    break;
 		/* utf8 */
 		case 'G':
 		case '8':
-		    s->t_attrib.font = UTF8;
+		    s->t_attrib.codec = 1;
 		    break;
 	    }
 	    break;
@@ -2059,6 +2058,7 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->t_attrib_default.bgcol = COLOR_BLACK;
     s->t_attrib_default.used = 0;
     s->t_attrib_default.font = G0;
+    s->t_attrib_default.codec = 1;
     s->c_attrib_default.highlit = 0;
     s->unicodeIndex = 0;
     s->unicodeLength = 0;
