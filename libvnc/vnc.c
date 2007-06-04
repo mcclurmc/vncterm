@@ -82,7 +82,6 @@ struct vnc_pm_region_update {
     uint16_t y;
     uint16_t w;
     uint16_t h;
-    int32_t mode;
 };
 
 struct vnc_pm_server_cut_text {
@@ -455,7 +454,6 @@ static void send_framebuffer_update(VncState *vs, int x, int y, int w, int h)
     rup->y = y;
     rup->w = w;
     rup->h = h;
-    rup->mode = 0;
 
     dprintf("created rup %p %d %d %d %d %d %d\n", rup, x, y, w, h,
 	    vs->pix_bpp, vs->depth);
