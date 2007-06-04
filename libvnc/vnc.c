@@ -83,8 +83,6 @@ struct vnc_pm_region_update {
     uint16_t w;
     uint16_t h;
     int32_t mode;
-    uint32_t datalen;
-    uint8_t data[];
 };
 
 struct vnc_pm_server_cut_text {
@@ -446,12 +444,9 @@ static void hextile_enc_cord(uint8_t *ptr, int x, int y, int w, int h)
 
 static void send_framebuffer_update(VncState *vs, int x, int y, int w, int h)
 {
-    int i;
-    uint8_t *row;
-    uint8_t *data;
     struct vnc_pm_region_update *rup;
 
-    rup = malloc(sizeof(struct vnc_pm_region_update) + h * w * vs->depth);
+    rup = malloc(sizeof(struct vnc_pm_region_update));
     if (rup == NULL)
 	return;			/* XXX */
 
@@ -461,18 +456,9 @@ static void send_framebuffer_update(VncState *vs, int x, int y, int w, int h)
     rup->w = w;
     rup->h = h;
     rup->mode = 0;
-    rup->datalen = h * w * vs->depth;
 
-    data = rup->data;
-    row = vs->ds->data + y * vs->ds->linesize + x * vs->depth;
-    for (i = 0; i < h; i++) {
-	memcpy(data, row, w * vs->depth);
-	row += vs->ds->linesize;
-	data += w * vs->depth;
-    }
-
-    dprintf("created rup %p %d %d %d %d %d %d %d\n", rup, x, y, w, h,
-	    rup->datalen, vs->pix_bpp, vs->depth);
+    dprintf("created rup %p %d %d %d %d %d %d\n", rup, x, y, w, h,
+	    vs->pix_bpp, vs->depth);
 
     *vs->vpm->vpm_region_updates_last = rup;
     vs->vpm->vpm_region_updates_last = &rup->next;
@@ -836,8 +822,9 @@ static int vnc_process_messages(VncState *vs)
 	    vpm->vpm_region_updates = rup->next;
 	    vnc_framebuffer_update(vs, rup->x, rup->y, rup->w, rup->h,
 				   vs->has_hextile ? 5 : 0);
-	    row = rup->data;
-	    stride = rup->w * vs->depth;
+	    row = vs->old_data + rup->y * vs->ds->linesize +
+		rup->x * vs->depth;
+	    stride = vs->ds->linesize;
 	    if (vs->has_hextile) {
 		int has_fg, has_bg;
 		uint32_t last_fg32, last_bg32;
@@ -859,8 +846,8 @@ static int vnc_process_messages(VncState *vs)
 		    row += stride;
 		}
 	    }
-	    dprintf("-- sent rup %p %d %d %d %d %d\n", rup, rup->x, rup->y,
-		    rup->w, rup->h, rup->datalen);
+	    dprintf("-- sent rup %p %d %d %d %d\n", rup, rup->x, rup->y,
+		    rup->w, rup->h);
 	    free(rup);
 	}
 	vs->vpm->vpm_region_updates_last = &vpm->vpm_region_updates;
