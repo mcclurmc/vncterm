@@ -705,6 +705,7 @@ highlight(TextConsole *s, int from_y, int from_x, int to_y, int to_x,
 	from_y = to_y;
     } else
 	end = to_y * s->width + to_x;
+
     c = &s->cells[cy(from_y) * s->width + from_x];
     while (from_y * s->width + from_x < end) {
 	if ((!used || c->t_attrib.used) && persist)
@@ -896,7 +897,7 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	    update_mouse_selection(s, dx, dy, 0);
 	    s->mouse_select = 0;
 	}
-	update_mouse(s, dx, dy, 1, 0);
+	//update_mouse(s, dx, dy, 1, 0);
     } else if (buttons_state == 1) {
 	update_mouse_selection(s, dx, dy, 1);
     }
