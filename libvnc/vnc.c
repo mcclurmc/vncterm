@@ -589,16 +589,16 @@ static void send_framebuffer_update(VncState *vs, int x, int y, int w, int h)
     }
 }
 
-static int find_update_height(VncState *vs, int y, int maxy, int last_x, int x)
+static inline int find_update_height(VncState *vs, int y, int maxy,
+				     uint64_t mask)
 {
-    int h;
+    int h = 1;
 
-    for (h = 1; y + h < maxy; h++) {
-	int tmp_x;
-	if (!(vs->update_row[y + h] & (1ULL << last_x)))
+    while (vs->update_row[y + h] & mask) {
+	vs->update_row[y + h] &= ~mask;
+	h++;
+	if (y + h == maxy)
 	    break;
-	for (tmp_x = last_x; tmp_x < x; tmp_x++)
-	    vs->update_row[y + h] &= ~(1ULL << tmp_x);
     }
 
     return h;
@@ -671,34 +671,20 @@ static void _vnc_update_client(void *opaque)
     new_rectangles = 0;
 
     for (y = vs->visible_y; y < maxy; y++) {
-	int x;
-	int last_x = -1;
+	int x, h;
 	for (x = X2DP_DOWN(vs, vs->visible_x);
 	     x < X2DP_UP(vs, maxx); x++) {
-	    if (vs->update_row[y] & (1ULL << x)) {
-		if (last_x == -1)
-		    last_x = x;
-		vs->update_row[y] &= ~(1ULL << x);
-	    } else {
-		if (last_x != -1) {
-		    int h = find_update_height(vs, y, maxy, last_x, x);
-		    if (h != 0) {
-			send_framebuffer_update(vs, DP2X(vs, last_x), y,
-						DP2X(vs, (x - last_x)), h);
-			new_rectangles++;
-		    }
+	    uint64_t mask = 1ULL << x;
+	    if (vs->update_row[y] & mask) {
+		h = find_update_height(vs, y, maxy, mask);
+		if (h != 0) {
+		    send_framebuffer_update(vs, DP2X(vs, x), y,
+					    DP2X(vs, 1), h);
+		    new_rectangles++;
 		}
-		last_x = -1;
 	    }
 	}
-	if (last_x != -1) {
-	    int h = find_update_height(vs, y, maxy, last_x, x);
-	    if (h != 0) {
-		send_framebuffer_update(vs, DP2X(vs, last_x), y,
-					DP2X(vs, (x - last_x)), h);
-		new_rectangles++;
-	    }
-	}
+	vs->update_row[y] = 0;
     }
     if (new_rectangles == 0)
 	goto backoff;
