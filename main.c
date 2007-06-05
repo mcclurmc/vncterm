@@ -66,33 +66,25 @@ int
 set_fd_handler(int fd, int (*fd_read_poll)(void *), void (*fd_read)(void *),
 	       void (*fd_write)(void *), void *opaque)
 {
-    struct iohandler **pioh = &iohandlers, *ioh;
+    struct iohandler **pioh = &iohandlers;
 
     while (*pioh) {
 	if ((*pioh)->fd == fd)
 	    break;
 	pioh = &(*pioh)->next;
     }
-    if (fd_read || fd_write) {
-	if (*pioh == NULL) {
-	    *pioh = calloc(1, sizeof(struct iohandler));
-	    if (*pioh == NULL)
-		return -1;
-	    (*pioh)->fd = fd;
-	    nr_handlers++;
-	}
-	(*pioh)->fd_read = fd_read;
-	(*pioh)->fd_write = fd_write;
-	(*pioh)->opaque = opaque;
-	(*pioh)->enabled = 1;
-	handlers_updated = 1;
-    } else if (*pioh) {
-	nr_handlers--;
-	ioh = *pioh;
-	*pioh = (*pioh)->next;
-	free(ioh);
-	handlers_updated = 1;
+    if (*pioh == NULL) {
+	*pioh = calloc(1, sizeof(struct iohandler));
+	if (*pioh == NULL)
+	    return -1;
+	(*pioh)->fd = fd;
+	nr_handlers++;
     }
+    (*pioh)->fd_read = fd_read;
+    (*pioh)->fd_write = fd_write;
+    (*pioh)->opaque = opaque;
+    (*pioh)->enabled = (fd_read || fd_write);
+    handlers_updated = 1;
     return 0;
 }
 
@@ -644,17 +636,18 @@ main(int argc, char **argv, char **envp)
 		if (revents == 0)
 		    continue;
 		if (revents & (POLLERR|POLLHUP|POLLNVAL)) {
-		    if (restart && ioh->fd ==
-			console_input_fd(vncterm->console))
-			restart_needed = 1;
-		    else if (exit_on_eof)
-			exit(0);
+		    if (ioh->fd == console_input_fd(vncterm->console)) {
+			if (restart)
+			    restart_needed = 1;
+			else if (exit_on_eof)
+			    exit(0);
+		    }
 		    ioh->enabled = 0;
 		    handlers_updated = 1;
 		}
-		if (revents & POLLOUT)
+		if (revents & POLLOUT && ioh->fd_write)
 		    ioh->fd_write(ioh->opaque);
-		if (revents & POLLIN)
+		if (revents & POLLIN && ioh->fd_read)
 		    ioh->fd_read(ioh->opaque);
 	    }
 	}
