@@ -64,12 +64,14 @@ typedef struct Buffer
 } Buffer;
 
 typedef struct VncState VncState;
+struct VncClientState;
 
-typedef int VncReadEvent(VncState *vs, uint8_t *data, size_t len);
+typedef int VncReadEvent(struct VncClientState *vcs, uint8_t *data,
+			 size_t len);
 
-typedef void VncWritePixels(VncState *vs, void *data, int size);
+typedef void VncWritePixels(struct VncClientState *vcs, void *data, int size);
 
-typedef void VncSendHextileTile(VncState *vs,
+typedef void VncSendHextileTile(struct VncClientState *vcs,
                                 uint8_t *data, int stride,
                                 int w, int h,
                                 uint32_t *last_bg, 
@@ -97,28 +99,12 @@ struct vnc_pending_messages {
     struct vnc_pm_region_update **vpm_region_updates_last;
 };
 
-struct VncState
+struct VncClientState
 {
-    char *title;
-
-    void *timer;
-    int timer_interval;
-    int64_t last_update_time;
-
-    int lsock;
+    struct VncState *vs;
     int csock;
-
-    DisplayState *ds;
-
-    uint64_t *dirty_row;	/* screen regions which are possibly dirty */
-    int dirty_pixel_shift;
-    uint64_t *update_row;	/* outstanding updates */
-    int has_update;		/* there's outstanding updates in the
-				 * visible area */
-
-    uint8_t *old_data;
-
-    int depth; /* internal VNC frame buffer byte per pixel */
+    Buffer output;
+    Buffer input;
 
     int has_resize;
     int has_hextile;
@@ -127,14 +113,6 @@ struct VncState
     int absolute;
     int last_x;
     int last_y;
-
-    const char *display;
-
-    Buffer output;
-    Buffer input;
-
-    char *kbd_layout_name;
-    kbd_layout_t *kbd_layout;
 
     /* current output mode information */
     VncWritePixels *write_pixels;
@@ -147,10 +125,45 @@ struct VncState
     VncReadEvent *read_handler;
     size_t read_handler_expect;
 
+    struct vnc_pending_messages vpm;
+};
+
+#define VCS_INUSE(vcs) ((vcs) && (vcs)->csock != -1)
+#define VCS_ACTIVE(vcs) ((vcs) && (vcs)->pix_bpp)
+
+#define MAX_CLIENTS 8
+
+struct VncState
+{
+    char *title;
+
+    void *timer;
+    int timer_interval;
+    int64_t last_update_time;
+
+    int lsock;
+
+    DisplayState *ds;
+    struct VncClientState *vcs[MAX_CLIENTS];
+
+    uint64_t *dirty_row;	/* screen regions which are possibly dirty */
+    int dirty_pixel_shift;
+    uint64_t *update_row;	/* outstanding updates */
+    int has_update;		/* there's outstanding updates in the
+				 * visible area */
+    uint8_t *old_data;
+
+    int depth; /* internal VNC frame buffer byte per pixel */
+
     int visible_x;
     int visible_y;
     int visible_w;
     int visible_h;
+
+    const char *display;
+
+    char *kbd_layout_name;
+    kbd_layout_t *kbd_layout;
 
     /* input */
     uint8_t modifiers_state[256];
@@ -159,8 +172,6 @@ struct VncState
     int send_resize;
 
     char *server_cut_text;
-
-    struct vnc_pending_messages *vpm;
 };
 
 #if 0
@@ -197,13 +208,15 @@ void do_info_vnc(void)
       and not totally invalidated
 */
 
-static inline void vnc_write_pending(VncState *vs);
-static void vnc_write(VncState *vs, const void *data, size_t len);
-static void vnc_write_u32(VncState *vs, uint32_t value);
-static void vnc_write_s32(VncState *vs, int32_t value);
-static void vnc_write_u16(VncState *vs, uint16_t value);
-static void vnc_write_u8(VncState *vs, uint8_t value);
-static void vnc_flush(VncState *vs);
+static inline void vnc_write_pending(struct VncClientState *vcs);
+static inline void vnc_write_pending_all(struct VncState *vs);
+static void vnc_write(struct VncClientState *vcs, const void *data,
+		      size_t len);
+static void vnc_write_u32(struct VncClientState *vcs, uint32_t value);
+static void vnc_write_s32(struct VncClientState *vcs, int32_t value);
+static void vnc_write_u16(struct VncClientState *vcs, uint16_t value);
+static void vnc_write_u8(struct VncClientState *vcs, uint8_t value);
+static void vnc_flush(struct VncClientState *vcs);
 static void _vnc_update_client(void *opaque);
 static void vnc_update_client(void *opaque);
 static void vnc_client_read(void *opaque);
@@ -286,57 +299,102 @@ static void vnc_dpy_update(DisplayState *ds, int x, int y, int w, int h)
     set_bits_in_row(vs, vs->dirty_row, x, y, w, h);
 }
 
-static void vnc_framebuffer_update(VncState *vs, int x, int y, int w, int h,
-				   int32_t encoding)
+static void vnc_framebuffer_update(struct VncClientState *vcs, int x, int y,
+				   int w, int h, int32_t encoding)
 {
-    vnc_write_u16(vs, x);
-    vnc_write_u16(vs, y);
-    vnc_write_u16(vs, w);
-    vnc_write_u16(vs, h);
+    vnc_write_u16(vcs, x);
+    vnc_write_u16(vcs, y);
+    vnc_write_u16(vcs, w);
+    vnc_write_u16(vcs, h);
 
-    vnc_write_s32(vs, encoding);
+    vnc_write_s32(vcs, encoding);
 }
 
 static void vnc_send_bell(DisplayState *ds)
 {
     VncState *vs = ds->opaque;
+    struct VncClientState *vcs;
+    int i;
 
-    vs->vpm->vpm_bell++;
-    vnc_write_pending(vs);
+    dprintf("send bell\n");
+    for (i = 0; i < MAX_CLIENTS; i++) {
+	if (!VCS_ACTIVE(vs->vcs[i]))
+	    continue;
+	vcs = vs->vcs[i];
+
+	vcs->vpm.vpm_bell++;
+	vnc_write_pending(vcs);
+    }
 }
 
 static void vnc_send_resize(DisplayState *ds)
 {
     VncState *vs = ds->opaque;
+    struct VncClientState *vcs;
+    int i;
 
     if (!vs->send_resize)
-        return;
+	return;
 
     dprintf("send resize\n");
-    vs->vpm->vpm_resize = 1;
-    vnc_write_pending(vs);
-    return;
+    for (i = 0; i < MAX_CLIENTS; i++) {
+	if (!VCS_ACTIVE(vs->vcs[i]))
+	    continue;
+	vcs = vs->vcs[i];
+
+	vcs->vpm.vpm_resize = 1;
+	vnc_write_pending(vcs);
+    }
+}
+
+static void vnc_flush_region_updates(struct vnc_pending_messages *vpm)
+{
+    struct vnc_pm_region_update *rup;
+    
+    while (vpm->vpm_region_updates) {
+	rup = vpm->vpm_region_updates;
+	vpm->vpm_region_updates = rup->next;
+	free(rup);
+    }
+    vpm->vpm_region_updates_last = &vpm->vpm_region_updates;
+}
+
+static void vnc_reset_pending_messages(struct vnc_pending_messages *vpm)
+{
+    vpm->vpm_resize = 0;
+    vpm->vpm_bell = 0;
+    vpm->vpm_server_cut_text = 0;
+    vnc_flush_region_updates(vpm);
 }
 
 static void vnc_dpy_resize(DisplayState *ds, int w, int h)
 {
-    int size_changed;
     VncState *vs = ds->opaque;
-    int o;
+    int o, i;
 
-    free(ds->data);
-    free(vs->old_data);
-    free(vs->dirty_row);
-    free(vs->update_row);
-    ds->data = qemu_mallocz(w * h * vs->depth);
-    vs->old_data = qemu_mallocz(w * h * vs->depth);
-    vs->dirty_row = qemu_mallocz(h * sizeof(vs->dirty_row[0]));
-    vs->update_row = qemu_mallocz(h * sizeof(vs->dirty_row[0]));
+    for (i = 0; i < MAX_CLIENTS; i++) {
+	if (!VCS_ACTIVE(vs->vcs[i]))
+	    continue;
+	vnc_flush_region_updates(&vs->vcs[i]->vpm);
+    }
+    dprintf("dpy resize w %d->%d h %d->%d depth %d\n", ds->width, w,
+	    ds->height, h, vs->depth);
 
-    if (ds->data == NULL || vs->old_data == NULL ||
-	vs->dirty_row == NULL || vs->update_row == NULL) {
-	fprintf(stderr, "vnc: memory allocation failed\n");
-	exit(1);
+    if (w != ds->width || h != ds->height || w * vs->depth != ds->linesize) {
+	free(ds->data);
+	free(vs->old_data);
+	free(vs->dirty_row);
+	free(vs->update_row);
+	ds->data = qemu_mallocz(w * h * vs->depth);
+	vs->old_data = qemu_mallocz(w * h * vs->depth);
+	vs->dirty_row = qemu_mallocz(h * sizeof(vs->dirty_row[0]));
+	vs->update_row = qemu_mallocz(h * sizeof(vs->dirty_row[0]));
+
+	if (ds->data == NULL || vs->old_data == NULL ||
+	    vs->dirty_row == NULL || vs->update_row == NULL) {
+	    fprintf(stderr, "vnc: memory allocation failed\n");
+	    exit(1);
+	}
     }
 
     if (ds->depth != vs->depth * 8) {
@@ -344,42 +402,42 @@ static void vnc_dpy_resize(DisplayState *ds, int w, int h)
 	if (ds->hw_refresh)
 	    ds->hw_refresh(ds);
     }
-    size_changed = ds->width != w || ds->height != h;
     ds->width = w;
     ds->height = h;
     ds->linesize = w * vs->depth;
-    if (vs->csock != -1 && vs->has_resize && size_changed) {
-	vs->send_resize = 1;
-    }
     vs->dirty_pixel_shift = 0;
     for (o = DIRTY_PIXEL_BITS; o < ds->width; o *= 2)
 	vs->dirty_pixel_shift++;
+    if (ds->width != w || ds->height != h)
+	vnc_send_resize(ds);
     framebuffer_set_updated(vs, 0, 0, ds->width, ds->height);
 }
 
 /* fastest code */
-static void vnc_write_pixels_copy(VncState *vs, void *pixels, int size)
+static void vnc_write_pixels_copy(struct VncClientState *vcs, void *pixels,
+				  int size)
 {
-    vnc_write(vs, pixels, size);
+    vnc_write(vcs, pixels, size);
 }
 
 /* slowest but generic code. */
-static void vnc_convert_pixel(VncState *vs, uint8_t *buf, uint32_t v)
+static void vnc_convert_pixel(struct VncClientState *vcs, uint8_t *buf,
+			      uint32_t v)
 {
     unsigned int r, g, b;
 
-    r = (v >> vs->red_shift1) & vs->red_max;
-    g = (v >> vs->green_shift1) & vs->green_max;
-    b = (v >> vs->blue_shift1) & vs->blue_max;
-    v = (r << vs->red_shift) | 
-        (g << vs->green_shift) | 
-        (b << vs->blue_shift);
-    switch(vs->pix_bpp) {
+    r = (v >> vcs->red_shift1) & vcs->red_max;
+    g = (v >> vcs->green_shift1) & vcs->green_max;
+    b = (v >> vcs->blue_shift1) & vcs->blue_max;
+    v = (r << vcs->red_shift) | 
+        (g << vcs->green_shift) | 
+        (b << vcs->blue_shift);
+    switch(vcs->pix_bpp) {
     case 1:
         buf[0] = v;
         break;
     case 2:
-        if (vs->pix_big_endian) {
+        if (vcs->pix_big_endian) {
             buf[0] = v >> 8;
             buf[1] = v;
         } else {
@@ -389,7 +447,7 @@ static void vnc_convert_pixel(VncState *vs, uint8_t *buf, uint32_t v)
         break;
     default:
     case 4:
-        if (vs->pix_big_endian) {
+        if (vcs->pix_big_endian) {
             buf[0] = v >> 24;
             buf[1] = v >> 16;
             buf[2] = v >> 8;
@@ -404,7 +462,8 @@ static void vnc_convert_pixel(VncState *vs, uint8_t *buf, uint32_t v)
     }
 }
 
-static void vnc_write_pixels_generic(VncState *vs, void *pixels1, int size)
+static void vnc_write_pixels_generic(struct VncClientState *vcs,
+				     void *pixels1, int size)
 {
     uint32_t *pixels = pixels1;
     uint8_t buf[4];
@@ -412,8 +471,8 @@ static void vnc_write_pixels_generic(VncState *vs, void *pixels1, int size)
 
     n = size >> 2;
     for(i = 0; i < n; i++) {
-        vnc_convert_pixel(vs, buf, pixels[i]);
-        vnc_write(vs, buf, vs->pix_bpp);
+        vnc_convert_pixel(vcs, buf, pixels[i]);
+        vnc_write(vcs, buf, vcs->pix_bpp);
     }
 }
 
@@ -444,81 +503,28 @@ static void hextile_enc_cord(uint8_t *ptr, int x, int y, int w, int h)
 static void send_framebuffer_update(VncState *vs, int x, int y, int w, int h)
 {
     struct vnc_pm_region_update *rup;
+    int i;
 
-    rup = malloc(sizeof(struct vnc_pm_region_update));
-    if (rup == NULL)
-	return;			/* XXX */
+    for (i = 0; i < MAX_CLIENTS; i++) {
+	if (!VCS_ACTIVE(vs->vcs[i]))
+	    continue;
 
-    rup->next = NULL;
-    rup->x = x;
-    rup->y = y;
-    rup->w = w;
-    rup->h = h;
+	rup = malloc(sizeof(struct vnc_pm_region_update));
+	if (rup == NULL)
+	    continue;			/* XXX */
 
-    dprintf("created rup %p %d %d %d %d %d %d\n", rup, x, y, w, h,
-	    vs->pix_bpp, vs->depth);
+	rup->next = NULL;
+	rup->x = x;
+	rup->y = y;
+	rup->w = w;
+	rup->h = h;
 
-    *vs->vpm->vpm_region_updates_last = rup;
-    vs->vpm->vpm_region_updates_last = &rup->next;
-}
-
-#if 0
-static void vnc_copy(DisplayState *ds, int src_x, int src_y, int dst_x, int dst_y, int w, int h)
-{
-    int src, dst;
-    uint8_t *src_row;
-    uint8_t *dst_row;
-    uint8_t *old_row;
-    int y = 0;
-    int pitch = ds->linesize;
-    VncState *vs = ds->opaque;
-    int updating_client = 1;
-
-    if (!vs->update_requested ||
-        src_x < vs->visible_x || src_y < vs->visible_y ||
-	dst_x < vs->visible_x || dst_y < vs->visible_y ||
-	(src_x + w) > (vs->visible_x + vs->visible_w) ||
-	(src_y + h) > (vs->visible_y + vs->visible_h) ||
-	(dst_x + w) > (vs->visible_x + vs->visible_w) ||
-	(dst_y + h) > (vs->visible_y + vs->visible_h))
-	updating_client = 0;
-
-    if (updating_client)
-	_vnc_update_client(vs);
-
-    if (dst_y > src_y) {
-	y = h - 1;
-	pitch = -pitch;
+	*vs->vcs[i]->vpm.vpm_region_updates_last = rup;
+	vs->vcs[i]->vpm.vpm_region_updates_last = &rup->next;
+	dprintf("created rup %d %p %d %d %d %d %d %d\n", vs->vcs[i]->csock,
+		rup, x, y, w, h, vs->vcs[i]->pix_bpp, vs->depth);
     }
-
-    src = (ds->linesize * (src_y + y) + vs->depth * src_x);
-    dst = (ds->linesize * (dst_y + y) + vs->depth * dst_x);
-
-    src_row = ds->data + src;
-    dst_row = ds->data + dst;
-    old_row = vs->old_data + dst;
-
-    for (y = 0; y < h; y++) {
-	memmove(old_row, src_row, w * vs->depth);
-	memmove(dst_row, src_row, w * vs->depth);
-	src_row += pitch;
-	dst_row += pitch;
-	old_row += pitch;
-    }
-
-    if (updating_client && vs->csock != -1 && !vs->has_update) {
-	vnc_write_u8(vs, 0);  /* msg id */
-	vnc_write_u8(vs, 0);
-	vnc_write_u16(vs, 1); /* number of rects */
-	vnc_framebuffer_update(vs, dst_x, dst_y, w, h, 1);
-	vnc_write_u16(vs, src_x);
-	vnc_write_u16(vs, src_y);
-	vnc_flush(vs);
-        vs->update_requested = 0;
-    } else
-	framebuffer_set_updated(vs, dst_x, dst_y, w, h);
 }
-#endif
 
 static int find_update_height(VncState *vs, int y, int maxy, int last_x, int x)
 {
@@ -545,9 +551,7 @@ static void _vnc_update_client(void *opaque)
     uint64_t width_mask;
     int maxx, maxy;
     int tile_bytes = vs->depth * DP2X(vs, 1);
-
-    if (vs->csock == -1)
-	return;
+    int new_rectangles;
 
     now = vs->ds->get_clock();
 
@@ -601,6 +605,8 @@ static void _vnc_update_client(void *opaque)
     if (maxx > vs->ds->width)
 	maxx = vs->ds->width;
 
+    new_rectangles = 0;
+
     for (y = vs->visible_y; y < maxy; y++) {
 	int x;
 	int last_x = -1;
@@ -613,28 +619,31 @@ static void _vnc_update_client(void *opaque)
 	    } else {
 		if (last_x != -1) {
 		    int h = find_update_height(vs, y, maxy, last_x, x);
-		    if (h != 0)
+		    if (h != 0) {
 			send_framebuffer_update(vs, DP2X(vs, last_x), y,
 						DP2X(vs, (x - last_x)), h);
+			new_rectangles++;
+		    }
 		}
 		last_x = -1;
 	    }
 	}
 	if (last_x != -1) {
 	    int h = find_update_height(vs, y, maxy, last_x, x);
-	    if (h != 0)
+	    if (h != 0) {
 		send_framebuffer_update(vs, DP2X(vs, last_x), y,
 					DP2X(vs, (x - last_x)), h);
+		new_rectangles++;
+	    }
 	}
     }
-    if (vs->vpm->vpm_region_updates == NULL)
+    if (new_rectangles == 0)
 	goto backoff;
 
-    vnc_write_pending(vs);
+    vnc_write_pending_all(vs);
 
     vs->update_requested = 0;
     vs->has_update = 0;
-    vnc_flush(vs);
     vs->last_update_time = now;
 
     vs->timer_interval /= 2;
@@ -662,7 +671,7 @@ static void _vnc_update_client(void *opaque)
             vnc_send_resize(vs->ds);
             dprintf("send null update\n");
 	    send_framebuffer_update(vs, 0, 0, 1, 1);
-	    vnc_write_pending(vs);
+	    vnc_write_pending_all(vs);
 	    vs->last_update_time = now;
 	    return;
 	}
@@ -675,11 +684,14 @@ static void _vnc_update_client(void *opaque)
 static void vnc_set_server_text(DisplayState *ds, char *text)
 {
     VncState *vs = ds->opaque;
+    int i;
 
     if (vs->server_cut_text)
 	free(vs->server_cut_text);
     vs->server_cut_text = text;
-    vs->vpm->vpm_server_cut_text = 1;
+    for (i = 0; i < MAX_CLIENTS; i++)
+	if (VCS_ACTIVE(vs->vcs[i]))
+	    vs->vcs[i]->vpm.vpm_server_cut_text = 1;
     dprintf("set server text %s\n", vs->server_cut_text);
 }
 
@@ -746,57 +758,63 @@ static void buffer_append(Buffer *buffer, const void *data, size_t len)
     buffer->offset += len;
 }
 
-static int vnc_client_io_error(VncState *vs, int ret, int last_errno)
+static int vnc_client_io_error(struct VncClientState *vcs, int ret,
+			       int last_errno)
 {
-    if (ret == 0 || ret == -1) {
-	if (ret == -1 && (last_errno == EINTR || last_errno == EAGAIN))
-	    return 0;
+    struct VncState *vs = vcs->vs;
 
-	dprintf("vnc_client_io_error\n");
-	vs->ds->set_fd_handler(vs->csock, NULL, NULL, NULL, NULL);
-	closesocket(vs->csock);
-	vs->csock = -1;
-	buffer_reset(&vs->input);
-	buffer_reset(&vs->output);
+    if (ret != 0 && ret != -1)
+	return ret;
+
+    if (ret == -1 && (last_errno == EINTR || last_errno == EAGAIN))
 	return 0;
-    }
-    return ret;
+
+    dprintf("vnc_client_io_error on %d\n", vcs->csock);
+    vs->ds->set_fd_handler(vcs->csock, NULL, NULL, NULL, NULL);
+    closesocket(vcs->csock);
+    vcs->csock = -1;
+    buffer_reset(&vcs->input);
+    buffer_reset(&vcs->output);
+    vnc_reset_pending_messages(&vcs->vpm);
+    vcs->pix_bpp = 0;
+    return 0;
 }
 
-static void vnc_client_error(VncState *vs)
+static void vnc_client_error(struct VncClientState *vcs)
 {
-    vnc_client_io_error(vs, -1, EINVAL);
+    vnc_client_io_error(vcs, -1, EINVAL);
 }
 
-static int vnc_process_messages(VncState *vs)
+static int vnc_process_messages(struct VncClientState *vcs)
 {
     struct vnc_pending_messages *vpm;
+    struct VncState *vs = vcs->vs;
 
-    vpm = vs->vpm;
+    vpm = &vcs->vpm;
     if (vpm == NULL)
 	return 0;
 
     dprintf("processing messages\n");
     if (vpm->vpm_resize) {
 	dprintf("++ resize\n");
-	vnc_write_u8(vs, 0);  /* msg id */
-	vnc_write_u8(vs, 0);
-	vnc_write_u16(vs, 1); /* number of rects */
-	vnc_framebuffer_update(vs, 0, 0, vs->ds->width, vs->ds->height, -223);
+	vnc_write_u8(vcs, 0);  /* msg id */
+	vnc_write_u8(vcs, 0);
+	vnc_write_u16(vcs, 1); /* number of rects */
+	vnc_framebuffer_update(vcs, 0, 0, vs->ds->width, vs->ds->height, -223);
 	vpm->vpm_resize = 0;
     }
     while (vpm->vpm_bell) {
 	dprintf("++ bell\n");
-	vnc_write_u8(vs, 2);  /* msg id */
+	vnc_write_u8(vcs, 2);  /* msg id */
 	vpm->vpm_bell--;
     }
     if (vpm->vpm_server_cut_text) {
 	char pad[3] = { 0, 0, 0 };
 	dprintf("++ cut text\n");
-	vnc_write_u8(vs, 3);	/* ServerCutText */
-	vnc_write(vs, pad, 3);	/* padding */
-	vnc_write_u32(vs, strlen(vs->server_cut_text));	/* length */
-	vnc_write(vs, vs->server_cut_text,
+	vnc_write_u8(vcs, 3);	/* ServerCutText */
+	vnc_write(vcs, pad, 3);	/* padding */
+	vnc_write_u32(vcs, strlen(vs->server_cut_text));	/* length */
+	vnc_write(vcs, vs->server_cut_text,
 		  strlen(vs->server_cut_text)); /* text */
 	vpm->vpm_server_cut_text = 0;
     }
@@ -810,26 +828,26 @@ static int vnc_process_messages(VncState *vs)
 	    n_rects++;
 	dprintf("sending %d rups\n", n_rects);
 
-	vnc_write_u8(vs, 0);  /* msg id */
-	vnc_write_u8(vs, 0);
-	vnc_write_u16(vs, n_rects);
+	vnc_write_u8(vcs, 0);  /* msg id */
+	vnc_write_u8(vcs, 0);
+	vnc_write_u16(vcs, n_rects);
 	while (vpm->vpm_region_updates) {
 	    int i, j, stride;
 	    uint8_t *row;
 	    rup = vpm->vpm_region_updates;
 	    vpm->vpm_region_updates = rup->next;
-	    vnc_framebuffer_update(vs, rup->x, rup->y, rup->w, rup->h,
-				   vs->has_hextile ? 5 : 0);
+	    vnc_framebuffer_update(vcs, rup->x, rup->y, rup->w, rup->h,
+				   vcs->has_hextile ? 5 : 0);
 	    row = vs->old_data + rup->y * vs->ds->linesize +
 		rup->x * vs->depth;
 	    stride = vs->ds->linesize;
-	    if (vs->has_hextile) {
+	    if (vcs->has_hextile) {
 		int has_fg, has_bg;
 		uint32_t last_fg32, last_bg32;
 		has_fg = has_bg = 0;
 		for (j = 0; j < rup->h; j += 16) {
 		    for (i = 0; i < rup->w; i += 16) {
-			vs->send_hextile_tile(vs, row + i * vs->depth,
+			vcs->send_hextile_tile(vcs, row + i * vs->depth,
 					      stride,
 					      MIN(16, rup->w - i),
 					      MIN(16, rup->h - j),
@@ -840,7 +858,7 @@ static int vnc_process_messages(VncState *vs)
 		}
 	    } else {
 		for (i = 0; i < rup->h; i++) {
-		    vs->write_pixels(vs, row, rup->w * vs->depth);
+		    vcs->write_pixels(vcs, row, rup->w * vs->depth);
 		    row += stride;
 		}
 	    }
@@ -848,103 +866,118 @@ static int vnc_process_messages(VncState *vs)
 		    rup->w, rup->h);
 	    free(rup);
 	}
-	vs->vpm->vpm_region_updates_last = &vpm->vpm_region_updates;
+	vpm->vpm_region_updates_last = &vpm->vpm_region_updates;
     }
-    return vs->output.offset;
+    return vcs->output.offset;
 }
 
 static void vnc_client_write(void *opaque)
 {
     long ret;
-    VncState *vs = opaque;
+    struct VncClientState *vcs = opaque;
+    struct VncState *vs = vcs->vs;
 
     while (1) {
-	if (vs->output.offset == 0 && vnc_process_messages(vs) == 0) {
+	if (vcs->output.offset == 0 && vnc_process_messages(vcs) == 0) {
 	    dprintf("disable write\n");
-	    vs->ds->set_fd_handler(vs->csock, NULL, vnc_client_read, NULL, vs);
+	    vs->ds->set_fd_handler(vcs->csock, NULL, vnc_client_read, NULL,
+				   vcs);
 	    break;
 	}
 
-	dprintf("write %d\n", vs->output.offset);
-	ret = send(vs->csock, vs->output.buffer, vs->output.offset, 0);
-	ret = vnc_client_io_error(vs, ret, socket_error());
+	dprintf("write %d\n", vcs->output.offset);
+	ret = send(vcs->csock, vcs->output.buffer, vcs->output.offset, 0);
+	ret = vnc_client_io_error(vcs, ret, socket_error());
 	if (!ret) {
-	    dprintf("write error %d with %d\n", errno, vs->output.offset);
+	    dprintf("write error %d with %d\n", errno, vcs->output.offset);
 	    return;
 	}
 
-	memmove(vs->output.buffer, vs->output.buffer + ret,
-		vs->output.offset - ret);
-	vs->output.offset -= ret;
+	memmove(vcs->output.buffer, vcs->output.buffer + ret,
+		vcs->output.offset - ret);
+	vcs->output.offset -= ret;
 
-	if (vs->output.offset)
+	if (vcs->output.offset)
 	    break;
     }
 }
 
-static void vnc_read_when(VncState *vs, VncReadEvent *func, size_t expecting)
+static void vnc_read_when(struct VncClientState *vcs, VncReadEvent *func,
+			  size_t expecting)
 {
-    vs->read_handler = func;
-    vs->read_handler_expect = expecting;
+    vcs->read_handler = func;
+    vcs->read_handler_expect = expecting;
 }
 
 static void vnc_client_read(void *opaque)
 {
-    VncState *vs = opaque;
+    struct VncClientState *vcs = opaque;
     long ret;
 
-    buffer_reserve(&vs->input, 4096);
+    buffer_reserve(&vcs->input, 4096);
 
-    ret = recv(vs->csock, buffer_end(&vs->input), 4096, 0);
-    ret = vnc_client_io_error(vs, ret, socket_error());
+    ret = recv(vcs->csock, buffer_end(&vcs->input), 4096, 0);
+    ret = vnc_client_io_error(vcs, ret, socket_error());
     if (!ret)
 	return;
 
-    vs->input.offset += ret;
+    vcs->input.offset += ret;
 
-    while (vs->read_handler && vs->input.offset >= vs->read_handler_expect) {
-	size_t len = vs->read_handler_expect;
+    while (vcs->read_handler &&
+	   vcs->input.offset >= vcs->read_handler_expect) {
+	size_t len = vcs->read_handler_expect;
 	int ret;
 
-	ret = vs->read_handler(vs, vs->input.buffer, len);
-	if (vs->csock == -1)
+	ret = vcs->read_handler(vcs, vcs->input.buffer, len);
+	if (vcs->csock == -1)
 	    return;
 
 	if (!ret) {
-	    memmove(vs->input.buffer, vs->input.buffer + len,
-		    vs->input.offset - len);
-	    vs->input.offset -= len;
+	    memmove(vcs->input.buffer, vcs->input.buffer + len,
+		    vcs->input.offset - len);
+	    vcs->input.offset -= len;
 	} else {
-	    assert(ret > vs->read_handler_expect);
-	    vs->read_handler_expect = ret;
+	    assert(ret > vcs->read_handler_expect);
+	    vcs->read_handler_expect = ret;
 	}
     }
 }
 
-static inline void vnc_write_pending(VncState *vs)
+static inline void vnc_write_pending(struct VncClientState *vcs)
 {
-    if (buffer_empty(&vs->output)) {
+    struct VncState *vs = vcs->vs;
+
+    if (buffer_empty(&vcs->output)) {
 	dprintf("enable write\n");
-	vs->ds->set_fd_handler(vs->csock, NULL, vnc_client_read,
-			       vnc_client_write, vs);
+	vs->ds->set_fd_handler(vcs->csock, NULL, vnc_client_read,
+			       vnc_client_write, vcs);
     }
 }
 
-static void vnc_write(VncState *vs, const void *data, size_t len)
+static inline void vnc_write_pending_all(struct VncState *vs)
 {
-    buffer_reserve(&vs->output, len);
+    int i;
 
-    vnc_write_pending(vs);
-
-    buffer_append(&vs->output, data, len);
+    for (i = 0; i < MAX_CLIENTS; i++)
+	if (VCS_ACTIVE(vs->vcs[i]))
+	    vnc_write_pending(vs->vcs[i]);
 }
 
-static void vnc_write_s32(VncState *vs, int32_t value)
+static void vnc_write(struct VncClientState *vcs, const void *data, size_t len)
 {
-    vnc_write_u32(vs, *(uint32_t *)&value);
+    buffer_reserve(&vcs->output, len);
+
+    vnc_write_pending(vcs);
+
+    buffer_append(&vcs->output, data, len);
 }
 
-static void vnc_write_u32(VncState *vs, uint32_t value)
+static void vnc_write_s32(struct VncClientState *vcs, int32_t value)
+{
+    vnc_write_u32(vcs, *(uint32_t *)&value);
+}
+
+static void vnc_write_u32(struct VncClientState *vcs, uint32_t value)
 {
     uint8_t buf[4];
 
@@ -953,28 +986,28 @@ static void vnc_write_u32(VncState *vs, uint32_t value)
     buf[2] = (value >>  8) & 0xFF;
     buf[3] = value & 0xFF;
 
-    vnc_write(vs, buf, 4);
+    vnc_write(vcs, buf, 4);
 }
 
-static void vnc_write_u16(VncState *vs, uint16_t value)
+static void vnc_write_u16(struct VncClientState *vcs, uint16_t value)
 {
     uint8_t buf[2];
 
     buf[0] = (value >> 8) & 0xFF;
     buf[1] = value & 0xFF;
 
-    vnc_write(vs, buf, 2);
+    vnc_write(vcs, buf, 2);
 }
 
-static void vnc_write_u8(VncState *vs, uint8_t value)
+static void vnc_write_u8(struct VncClientState *vcs, uint8_t value)
 {
-    vnc_write(vs, &value, 1);
+    vnc_write(vcs, &value, 1);
 }
 
-static void vnc_flush(VncState *vs)
+static void vnc_flush(struct VncClientState *vcs)
 {
-    if (vs->output.offset)
-	vnc_client_write(vs);
+    if (vcs->output.offset)
+	vnc_client_write(vcs);
 }
 
 static uint8_t read_u8(uint8_t *data, size_t offset)
@@ -1001,25 +1034,27 @@ static void client_cut_text(VncState *vs, size_t len, char *text)
 {
 }
 
-static void check_pointer_type_change(VncState *vs, int absolute)
+static void check_pointer_type_change(struct VncClientState *vcs, int absolute)
 {
-    if (vs->has_pointer_type_change && vs->absolute != absolute) {
+    struct VncState *vs = vcs->vs;
+    if (vcs->has_pointer_type_change && vcs->absolute != absolute) {
 	dprintf("pointer type change\n");
-	vnc_write_u8(vs, 0);
-	vnc_write_u8(vs, 0);
-	vnc_write_u16(vs, 1);
-	vnc_framebuffer_update(vs, absolute, 0,
+	vnc_write_u8(vcs, 0);
+	vnc_write_u8(vcs, 0);
+	vnc_write_u16(vcs, 1);
+	vnc_framebuffer_update(vcs, absolute, 0,
 			       vs->ds->width, vs->ds->height, -257);
-	vnc_flush(vs);
+	vnc_flush(vcs);
     }
-    vs->absolute = absolute;
+    vcs->absolute = absolute;
 }
 
-static void pointer_event(VncState *vs, int button_mask, int x, int y)
+static void pointer_event(struct VncClientState *vcs, int button_mask,
+			  int x, int y)
 {
+    struct VncState *vs = vcs->vs;
     int buttons = 0;
     int dz = 0;
-
 
     if (button_mask & 0x01)
 	buttons |= MOUSE_EVENT_LBUTTON;
@@ -1033,26 +1068,26 @@ static void pointer_event(VncState *vs, int button_mask, int x, int y)
     if (button_mask & 0x10)
 	dz = 1;
 
-    if (vs->absolute) {
+    if (vcs->absolute) {
 	vs->ds->mouse_event(x * 0x7FFF / vs->ds->width,
 			    y * 0x7FFF / vs->ds->height,
 			    dz, buttons, vs->ds->mouse_opaque);
-    } else if (vs->has_pointer_type_change) {
+    } else if (vcs->has_pointer_type_change) {
 	x -= 0x7FFF;
 	y -= 0x7FFF;
 
 	vs->ds->mouse_event(x, y, dz, buttons, vs->ds->mouse_opaque);
     } else {
-	if (vs->last_x != -1)
-	    vs->ds->mouse_event(x - vs->last_x,
-				y - vs->last_y,
+	if (vcs->last_x != -1)
+	    vs->ds->mouse_event(x - vcs->last_x,
+				y - vcs->last_y,
 				dz, buttons,
 				vs->ds->mouse_opaque);
-	vs->last_x = x;
-	vs->last_y = y;
+	vcs->last_x = x;
+	vcs->last_y = y;
     }
 
-    check_pointer_type_change(vs,
+    check_pointer_type_change(vcs,
 			      vs->ds->mouse_is_absolute(vs->ds->mouse_opaque));
 }
 
@@ -1211,54 +1246,55 @@ static void framebuffer_set_updated(VncState *vs, int x, int y, int w, int h)
     vs->has_update = 1;
 }
 
-static void framebuffer_update_request(VncState *vs, int incremental,
+static void framebuffer_update_request(struct VncClientState *vcs,
+				       int incremental,
 				       int x_position, int y_position,
 				       int w, int h)
 {
+    struct VncState *vs = vcs->vs;
     if (!incremental)
 	framebuffer_set_updated(vs, x_position, y_position, w, h);
-    vs->visible_x = x_position;
-    vs->visible_y = y_position;
-    vs->visible_w = w;
-    vs->visible_h = h;
+    /* XXX */
+    vs->visible_x = 0;
+    vs->visible_y = 0;
+    vs->visible_w = vs->ds->width;
+    vs->visible_h = vs->ds->height;
     vs->update_requested = 1;
 
     vs->ds->set_timer(vs->timer, vs->ds->get_clock());
 }
 
-static void set_encodings(VncState *vs, int32_t *encodings, size_t n_encodings)
+static void set_encodings(struct VncClientState *vcs, int32_t *encodings,
+			  size_t n_encodings)
 {
+    struct VncState *vs = vcs->vs;
     int i;
 
-    vs->has_hextile = 0;
-    vs->has_resize = 0;
-    vs->has_pointer_type_change = 0;
-    vs->absolute = -1;
-    vs->ds->dpy_copy = NULL;
+    vcs->has_hextile = 0;
+    vcs->has_resize = 0;
+    vcs->has_pointer_type_change = 0;
+    vcs->absolute = -1;
 
     for (i = n_encodings - 1; i >= 0; i--) {
 	switch (encodings[i]) {
 	case 0: /* Raw */
-	    vs->has_hextile = 0;
-	    break;
-	case 1: /* CopyRect */
-	    /* vs->ds->dpy_copy = vnc_copy; */
+	    vcs->has_hextile = 0;
 	    break;
 	case 5: /* Hextile */
-	    vs->has_hextile = 1;
+	    vcs->has_hextile = 1;
 	    break;
 	case -223: /* DesktopResize */
-	    vs->has_resize = 1;
+	    vcs->has_resize = 1;
 	    break;
 	case -257:
-	    vs->has_pointer_type_change = 1;
+	    vcs->has_pointer_type_change = 1;
 	    break;
 	default:
 	    break;
 	}
     }
 
-    check_pointer_type_change(vs,
+    check_pointer_type_change(vcs,
 			      vs->ds->mouse_is_absolute(vs->ds->mouse_opaque));
 }
 
@@ -1273,12 +1309,13 @@ static int compute_nbits(unsigned int val)
     return n;
 }
 
-static void set_pixel_format(VncState *vs,
+static void set_pixel_format(struct VncClientState *vcs,
 			     int bits_per_pixel, int depth,
 			     int big_endian_flag, int true_color_flag,
 			     int red_max, int green_max, int blue_max,
 			     int red_shift, int green_shift, int blue_shift)
 {
+    struct VncState *vs = vcs->vs;
     int host_big_endian_flag;
 
 #ifdef WORDS_BIGENDIAN
@@ -1288,35 +1325,37 @@ static void set_pixel_format(VncState *vs,
 #endif
     if (!true_color_flag) {
     fail:
-	vnc_client_error(vs);
+	vnc_client_error(vcs);
         return;
     }
+    dprintf("pixel format bpp %d depth %d vs depth %d\n", bits_per_pixel,
+	    depth, vs->depth);
     if (bits_per_pixel == 32 && 
         host_big_endian_flag == big_endian_flag &&
         red_max == 0xff && green_max == 0xff && blue_max == 0xff &&
-        red_shift == 16 && green_shift == 8 && blue_shift == 0) {
-        vs->depth = 4;
-        vs->write_pixels = vnc_write_pixels_copy;
-        vs->send_hextile_tile = send_hextile_tile_32;
+        red_shift == 16 && green_shift == 8 && blue_shift == 0 &&
+        bits_per_pixel == vs->depth * 8) {
+        vcs->write_pixels = vnc_write_pixels_copy;
+        vcs->send_hextile_tile = send_hextile_tile_32;
         dprintf("set pixel format bpp %d depth %d copy\n", bits_per_pixel,
 		vs->depth);
     } else 
     if (bits_per_pixel == 16 && 
         host_big_endian_flag == big_endian_flag &&
         red_max == 31 && green_max == 63 && blue_max == 31 &&
-        red_shift == 11 && green_shift == 5 && blue_shift == 0) {
-        vs->depth = 2;
-        vs->write_pixels = vnc_write_pixels_copy;
-        vs->send_hextile_tile = send_hextile_tile_16;
+        red_shift == 11 && green_shift == 5 && blue_shift == 0 &&
+        bits_per_pixel == vs->depth * 8) {
+        vcs->write_pixels = vnc_write_pixels_copy;
+        vcs->send_hextile_tile = send_hextile_tile_16;
         dprintf("set pixel format bpp %d depth %d copy\n", bits_per_pixel,
 		vs->depth);
     } else 
     if (bits_per_pixel == 8 && 
         red_max == 7 && green_max == 7 && blue_max == 3 &&
-        red_shift == 5 && green_shift == 2 && blue_shift == 0) {
-        vs->depth = 1;
-        vs->write_pixels = vnc_write_pixels_copy;
-        vs->send_hextile_tile = send_hextile_tile_8;
+        red_shift == 5 && green_shift == 2 && blue_shift == 0 &&
+        bits_per_pixel == vs->depth * 8) {
+        vcs->write_pixels = vnc_write_pixels_copy;
+        vcs->send_hextile_tile = send_hextile_tile_8;
         dprintf("set pixel format bpp %d depth %d copy\n", bits_per_pixel,
 		vs->depth);
     } else 
@@ -1326,23 +1365,22 @@ static void set_pixel_format(VncState *vs,
             bits_per_pixel != 16 &&
             bits_per_pixel != 32)
             goto fail;
-        vs->depth = 4;
-        vs->red_shift = red_shift;
-        vs->red_max = red_max;
-        vs->red_shift1 = 24 - compute_nbits(red_max);
-        vs->green_shift = green_shift;
-        vs->green_max = green_max;
-        vs->green_shift1 = 16 - compute_nbits(green_max);
-        vs->blue_shift = blue_shift;
-        vs->blue_max = blue_max;
-        vs->blue_shift1 = 8 - compute_nbits(blue_max);
-        vs->pix_big_endian = big_endian_flag;
-        vs->write_pixels = vnc_write_pixels_generic;
-        vs->send_hextile_tile = send_hextile_tile_generic;
+        vcs->red_shift = red_shift;
+        vcs->red_max = red_max;
+        vcs->red_shift1 = 24 - compute_nbits(red_max);
+        vcs->green_shift = green_shift;
+        vcs->green_max = green_max;
+        vcs->green_shift1 = 16 - compute_nbits(green_max);
+        vcs->blue_shift = blue_shift;
+        vcs->blue_max = blue_max;
+        vcs->blue_shift1 = 8 - compute_nbits(blue_max);
+        vcs->pix_big_endian = big_endian_flag;
+        vcs->write_pixels = vnc_write_pixels_generic;
+        vcs->send_hextile_tile = send_hextile_tile_generic;
         dprintf("set pixel format bpp %d depth %d generic\n", bits_per_pixel,
                 vs->depth);
     }
-    vs->pix_bpp = bits_per_pixel / 8;
+    vcs->pix_bpp = bits_per_pixel / 8;
 
     vnc_dpy_resize(vs->ds, vs->ds->width, vs->ds->height);
 
@@ -1352,8 +1390,10 @@ static void set_pixel_format(VncState *vs,
 	vs->ds->hw_update(vs->ds->hw_opaque);
 }
 
-static int protocol_client_msg(VncState *vs, uint8_t *data, size_t len)
+static int protocol_client_msg(struct VncClientState *vcs, uint8_t *data,
+			       size_t len)
 {
+    struct VncState *vs = vcs->vs;
     int i;
     uint16_t limit;
 
@@ -1362,7 +1402,7 @@ static int protocol_client_msg(VncState *vs, uint8_t *data, size_t len)
 	if (len == 1)
 	    return 20;
 
-	set_pixel_format(vs, read_u8(data, 4), read_u8(data, 5),
+	set_pixel_format(vcs, read_u8(data, 4), read_u8(data, 5),
 			 read_u8(data, 6), read_u8(data, 7),
 			 read_u16(data, 8), read_u16(data, 10),
 			 read_u16(data, 12), read_u8(data, 14),
@@ -1385,15 +1425,15 @@ static int protocol_client_msg(VncState *vs, uint8_t *data, size_t len)
 	    memcpy(data + 4 + (i * 4), &val, sizeof(val));
 	}
 
-	set_encodings(vs, (int32_t *)(data + 4), limit);
+	set_encodings(vcs, (int32_t *)(data + 4), limit);
 	break;
     case 3:
 	if (len == 1)
 	    return 10;
 
-	framebuffer_update_request(vs,
-				   read_u8(data, 1), read_u16(data, 2), read_u16(data, 4),
-				   read_u16(data, 6), read_u16(data, 8));
+	framebuffer_update_request(vcs, read_u8(data, 1), read_u16(data, 2),
+				   read_u16(data, 4), read_u16(data, 6),
+				   read_u16(data, 8));
 	break;
     case 4:
 	if (len == 1)
@@ -1411,7 +1451,8 @@ static int protocol_client_msg(VncState *vs, uint8_t *data, size_t len)
         vs->update_requested = 1;
 	vs->timer_interval = VNC_REFRESH_INTERVAL_BASE;
 	vs->ds->set_timer(vs->timer, vs->ds->get_clock() + vs->timer_interval);
-	pointer_event(vs, read_u8(data, 1), read_u16(data, 2), read_u16(data, 4));
+	pointer_event(vcs, read_u8(data, 1), read_u16(data, 2),
+		      read_u16(data, 4));
 	break;
     case 6:
 	if (len == 1)
@@ -1437,16 +1478,18 @@ static int protocol_client_msg(VncState *vs, uint8_t *data, size_t len)
 	break;
     default:
 	dprintf("Msg: %d\n", data[0]);
-	vnc_client_error(vs);
+	vnc_client_error(vcs);
 	break;
     }
-	
-    vnc_read_when(vs, protocol_client_msg, 1);
+
+    vnc_read_when(vcs, protocol_client_msg, 1);
     return 0;
 }
 
-static int protocol_client_init(VncState *vs, uint8_t *data, size_t len)
+static int protocol_client_init(struct VncClientState *vcs, uint8_t *data,
+				size_t len)
 {
+    struct VncState *vs = vcs->vs;
     size_t l;
     char pad[3] = { 0, 0, 0 };
 
@@ -1454,59 +1497,60 @@ static int protocol_client_init(VncState *vs, uint8_t *data, size_t len)
 	vs->ds->hw_update(vs->ds->hw_opaque);
 
     dprintf("client init\n");
-    vnc_write_u16(vs, vs->ds->width);
-    vnc_write_u16(vs, vs->ds->height);
+    vnc_write_u16(vcs, vs->ds->width);
+    vnc_write_u16(vcs, vs->ds->height);
 
-    vnc_write_u8(vs, vs->depth * 8); /* bits-per-pixel */
-    vnc_write_u8(vs, vs->depth * 8); /* depth */
+    vnc_write_u8(vcs, vs->depth * 8); /* bits-per-pixel */
+    vnc_write_u8(vcs, vs->depth * 8); /* depth */
 #ifdef WORDS_BIGENDIAN
-    vnc_write_u8(vs, 1);             /* big-endian-flag */
+    vnc_write_u8(vcs, 1);             /* big-endian-flag */
 #else
-    vnc_write_u8(vs, 0);             /* big-endian-flag */
+    vnc_write_u8(vcs, 0);             /* big-endian-flag */
 #endif
-    vnc_write_u8(vs, 1);             /* true-color-flag */
+    vnc_write_u8(vcs, 1);             /* true-color-flag */
     if (vs->depth == 4) {
-	vnc_write_u16(vs, 0xFF);     /* red-max */
-	vnc_write_u16(vs, 0xFF);     /* green-max */
-	vnc_write_u16(vs, 0xFF);     /* blue-max */
-	vnc_write_u8(vs, 16);        /* red-shift */
-	vnc_write_u8(vs, 8);         /* green-shift */
-	vnc_write_u8(vs, 0);         /* blue-shift */
-        vs->send_hextile_tile = send_hextile_tile_32;
+	vnc_write_u16(vcs, 0xFF);     /* red-max */
+	vnc_write_u16(vcs, 0xFF);     /* green-max */
+	vnc_write_u16(vcs, 0xFF);     /* blue-max */
+	vnc_write_u8(vcs, 16);        /* red-shift */
+	vnc_write_u8(vcs, 8);         /* green-shift */
+	vnc_write_u8(vcs, 0);         /* blue-shift */
+        vcs->send_hextile_tile = send_hextile_tile_32;
     } else if (vs->depth == 2) {
-	vnc_write_u16(vs, 31);       /* red-max */
-	vnc_write_u16(vs, 63);       /* green-max */
-	vnc_write_u16(vs, 31);       /* blue-max */
-	vnc_write_u8(vs, 11);        /* red-shift */
-	vnc_write_u8(vs, 5);         /* green-shift */
-	vnc_write_u8(vs, 0);         /* blue-shift */
-        vs->send_hextile_tile = send_hextile_tile_16;
+	vnc_write_u16(vcs, 31);       /* red-max */
+	vnc_write_u16(vcs, 63);       /* green-max */
+	vnc_write_u16(vcs, 31);       /* blue-max */
+	vnc_write_u8(vcs, 11);        /* red-shift */
+	vnc_write_u8(vcs, 5);         /* green-shift */
+	vnc_write_u8(vcs, 0);         /* blue-shift */
+        vcs->send_hextile_tile = send_hextile_tile_16;
     } else if (vs->depth == 1) {
         /* XXX: change QEMU pixel 8 bit pixel format to match the VNC one ? */
-	vnc_write_u16(vs, 7);        /* red-max */
-	vnc_write_u16(vs, 7);        /* green-max */
-	vnc_write_u16(vs, 3);        /* blue-max */
-	vnc_write_u8(vs, 5);         /* red-shift */
-	vnc_write_u8(vs, 2);         /* green-shift */
-	vnc_write_u8(vs, 0);         /* blue-shift */
-        vs->send_hextile_tile = send_hextile_tile_8;
+	vnc_write_u16(vcs, 7);        /* red-max */
+	vnc_write_u16(vcs, 7);        /* green-max */
+	vnc_write_u16(vcs, 3);        /* blue-max */
+	vnc_write_u8(vcs, 5);         /* red-shift */
+	vnc_write_u8(vcs, 2);         /* green-shift */
+	vnc_write_u8(vcs, 0);         /* blue-shift */
+        vcs->send_hextile_tile = send_hextile_tile_8;
     }
-    vs->write_pixels = vnc_write_pixels_copy;
-	
-    vnc_write(vs, pad, 3);           /* padding */
+    vcs->write_pixels = vnc_write_pixels_copy;
+
+    vnc_write(vcs, pad, 3);           /* padding */
 
     l = strlen(vs->title); 
-    vnc_write_u32(vs, l);        
-    vnc_write(vs, vs->title, l);
+    vnc_write_u32(vcs, l);
+    vnc_write(vcs, vs->title, l);
 
-    vnc_flush(vs);
+    vnc_flush(vcs);
 
-    vnc_read_when(vs, protocol_client_msg, 1);
+    vnc_read_when(vcs, protocol_client_msg, 1);
 
     return 0;
 }
 
-static int protocol_response(VncState *vs, uint8_t *client_response, size_t len)
+static int protocol_response(struct VncClientState *vcs,
+			     uint8_t *client_response, size_t len)
 {
     unsigned char cryptchallenge[AUTHCHALLENGESIZE];
     unsigned char key[8];
@@ -1525,25 +1569,26 @@ static int protocol_response(VncState *vs, uint8_t *client_response, size_t len)
     /* Check the actual response */
     if (memcmp(cryptchallenge, client_response, AUTHCHALLENGESIZE) != 0) {
 	/* password error */
-	vnc_write_u32(vs, 1);
-	vnc_write_u32(vs, 22);
-	vnc_write(vs, "Authentication failure", 22);
-	vnc_flush(vs);
+	vnc_write_u32(vcs, 1);
+	vnc_write_u32(vcs, 22);
+	vnc_write(vcs, "Authentication failure", 22);
+	vnc_flush(vcs);
 	fprintf(stderr, "VNC Password error.\n");
-	vnc_client_error(vs);
+	vnc_client_error(vcs);
 	return 0;
     }
 
     dprintf("protocol response\n");
-    vnc_write_u32(vs, 0);
-    vnc_flush(vs);
+    vnc_write_u32(vcs, 0);
+    vnc_flush(vcs);
 
-    vnc_read_when(vs, protocol_client_init, 1);
+    vnc_read_when(vcs, protocol_client_init, 1);
 
     return 0;
 }
 
-static int protocol_version(VncState *vs, uint8_t *version, size_t len)
+static int protocol_version(struct VncClientState *vcs, uint8_t *version,
+			    size_t len)
 {
     extern char vncpasswd[64];
     extern unsigned char challenge[AUTHCHALLENGESIZE];
@@ -1556,7 +1601,7 @@ static int protocol_version(VncState *vs, uint8_t *version, size_t len)
     /* protocol version check */
     if (sscanf(local, "RFB %03d.%03d\n", &maj, &min) != 2) {
 	fprintf(stderr, "Protocol version error.\n");
-	vnc_client_error(vs);
+	vnc_client_error(vcs);
 	return 0;
     }
 
@@ -1570,26 +1615,26 @@ static int protocol_version(VncState *vs, uint8_t *version, size_t len)
     if (! support) {
 	fprintf(stderr, "Client uses unsupported protocol version %d.%d.\n",
 		maj, min);
-	vnc_client_error(vs);
+	vnc_client_error(vcs);
 	return 0;
     }
 
     dprintf("authentication\n");
     if (*vncpasswd == '\0') {
 	/* AuthType is None */
-	vnc_write_u32(vs, 1);
-	vnc_flush(vs);
-	vnc_read_when(vs, protocol_client_init, 1);
+	vnc_write_u32(vcs, 1);
+	vnc_flush(vcs);
+	vnc_read_when(vcs, protocol_client_init, 1);
     } else {
 	/* AuthType is VncAuth */
-	vnc_write_u32(vs, 2);
+	vnc_write_u32(vcs, 2);
 
 	/* Challenge-Responce authentication */
 	/* Send Challenge */
 	make_challenge(challenge, AUTHCHALLENGESIZE);
-	vnc_write(vs, challenge, AUTHCHALLENGESIZE);
-	vnc_flush(vs);
-	vnc_read_when(vs, protocol_response, AUTHCHALLENGESIZE);
+	vnc_write(vcs, challenge, AUTHCHALLENGESIZE);
+	vnc_flush(vcs);
+	vnc_read_when(vcs, protocol_response, AUTHCHALLENGESIZE);
     }
 
     return 0;
@@ -1598,34 +1643,49 @@ static int protocol_version(VncState *vs, uint8_t *version, size_t len)
 static void vnc_listen_read(void *opaque)
 {
     VncState *vs = opaque;
+    struct VncClientState *vcs;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    int new_sock = accept(vs->lsock, (struct sockaddr *)&addr, &addrlen);
+    int new_sock;
+    int i;
 
-    if (new_sock != -1) {
-	if (vs->csock != -1) {
-	    vnc_client_io_error(vs, 0, EINTR);
-	    return;
-	}
-	vs->vpm = calloc(1, sizeof(struct vnc_pending_messages));
-	if (vs->vpm == NULL) {
-	    vnc_client_io_error(vs, 0, ENOMEM);
-	    return;
-	}
-	vs->vpm->vpm_region_updates_last = &vs->vpm->vpm_region_updates;
-	vs->csock = new_sock;
-        socket_set_nonblock(vs->csock);
-	vs->ds->set_fd_handler(vs->csock, NULL, vnc_client_read, NULL, opaque);
-	dprintf("rfb greeting\n");
-	vnc_write(vs, "RFB 003.003\n", 12);
-	vnc_flush(vs);
-	vnc_read_when(vs, protocol_version, 12);
-	framebuffer_set_updated(vs, 0, 0, vs->ds->width, vs->ds->height);
-	vs->has_resize = 0;
-	vs->has_hextile = 0;
-	vs->ds->dpy_copy = NULL;
-	vnc_timer_init(vs);
+    new_sock = accept(vs->lsock, (struct sockaddr *)&addr, &addrlen);
+    if (new_sock == -1)
+	return;
+
+    for (i = 0; i < MAX_CLIENTS; i++)
+	if (!VCS_INUSE(vs->vcs[i]))
+	    break;
+    if (i == MAX_CLIENTS)
+	goto fail;
+
+    if (vs->vcs[i] == NULL) {
+	vs->vcs[i] = calloc(1, sizeof(struct VncClientState));
+	if (vs->vcs[i] == NULL)
+	    goto fail;
     }
+
+    vcs = vs->vcs[i];
+    vcs->vs = vs;
+    vcs->vpm.vpm_region_updates_last = &vcs->vpm.vpm_region_updates;
+    vcs->csock = new_sock;
+    socket_set_nonblock(vcs->csock);
+    vs->ds->set_fd_handler(vcs->csock, NULL, vnc_client_read, NULL, opaque);
+    dprintf("rfb greeting\n");
+    vnc_write(vcs, "RFB 003.003\n", 12);
+    vnc_flush(vcs);
+    vnc_read_when(vcs, protocol_version, 12);
+    vcs->has_resize = 0;
+    vcs->has_hextile = 0;
+    vcs->last_x = -1;
+    vcs->last_y = -1;
+    framebuffer_set_updated(vs, 0, 0, vs->ds->width, vs->ds->height);
+    vnc_timer_init(vs);		/* XXX */
+    return;
+
+ fail:
+    closesocket(new_sock);
+    return;
 }
 
 int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
@@ -1647,12 +1707,11 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
 #endif
 
     vs->lsock = -1;
-    vs->csock = -1;
     vs->depth = 4;
-    vs->last_x = -1;
-    vs->last_y = -1;
 
     vs->ds = ds;
+
+    memset(vs->vcs, 0, sizeof(vs->vcs));
 
     if (!keyboard_layout)
 	keyboard_layout = "en-us";

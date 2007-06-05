@@ -7,13 +7,14 @@
 #define NAME BPP
 #endif
 
-static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
+static void CONCAT(send_hextile_tile_, NAME)(struct VncClientState *vcs,
                                              uint8_t *data, int stride,
                                              int w, int h,
                                              uint32_t *last_bg32, 
                                              uint32_t *last_fg32,
                                              int *has_bg, int *has_fg)
 {
+    struct VncState *vs = vcs->vs;
     pixel_t *irow = (pixel_t *)data;
     int j, i;
     pixel_t *last_bg = (pixel_t *)last_bg32;
@@ -131,8 +132,8 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 		} else if (irow[i] != color) {
 		    has_color = 0;
 #ifdef GENERIC
-                    vnc_convert_pixel(vs, pdata + n_pdata, color);
-                    n_pdata += vs->pix_bpp;
+                    vnc_convert_pixel(vcs, pdata + n_pdata, color);
+                    n_pdata += vcs->pix_bpp;
 #else
 		    memcpy(pdata + n_pdata, &color, sizeof(color));
                     n_pdata += sizeof(pixel_t);
@@ -151,8 +152,8 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 	    }
 	    if (has_color) {
 #ifdef GENERIC
-                vnc_convert_pixel(vs, pdata + n_pdata, color);
-                n_pdata += vs->pix_bpp;
+                vnc_convert_pixel(vcs, pdata + n_pdata, color);
+                n_pdata += vcs->pix_bpp;
 #else
                 memcpy(pdata + n_pdata, &color, sizeof(color));
                 n_pdata += sizeof(pixel_t);
@@ -185,19 +186,19 @@ static void CONCAT(send_hextile_tile_, NAME)(VncState *vs,
 	n_colors = 4;
     }
 
-    vnc_write_u8(vs, flags);
+    vnc_write_u8(vcs, flags);
     if (n_colors < 4) {
 	if (flags & 0x02)
-	    vs->write_pixels(vs, last_bg, sizeof(pixel_t));
+	    vcs->write_pixels(vcs, last_bg, sizeof(pixel_t));
 	if (flags & 0x04)
-	    vs->write_pixels(vs, last_fg, sizeof(pixel_t));
+	    vcs->write_pixels(vcs, last_fg, sizeof(pixel_t));
 	if (n_subtiles) {
-	    vnc_write_u8(vs, n_subtiles);
-	    vnc_write(vs, pdata, n_pdata);
+	    vnc_write_u8(vcs, n_subtiles);
+	    vnc_write(vcs, pdata, n_pdata);
 	}
     } else {
 	for (j = 0; j < h; j++) {
-	    vs->write_pixels(vs, data, w * vs->depth);
+	    vcs->write_pixels(vcs, data, w * vs->depth);
 	    data += stride;
 	}
     }
