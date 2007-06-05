@@ -1167,6 +1167,29 @@ static void put_norm(char ch)
     if (normidx == 1024)
 	print_norm();
 }
+
+static void do_putchar(TextConsole *s, int ch)
+{
+    TextCell *c;
+
+    put_norm(ch);
+    if (s->wrapped) {
+	set_cursor(s, s->y, 0);
+	console_put_lf(s);
+    }
+    c = &s->cells[cy(s->y) * s->width + s->x];
+    c->ch = ch;
+    c->t_attrib = s->t_attrib;
+    c->t_attrib.used = 1;
+    update_xy(s, s->x, s->y);
+    if (s->x + 1 < s->width)
+	set_cursor(s, s->y, s->x + 1);
+    else 
+	if (s->autowrap)
+	    s->wrapped = 1;
+
+}
+
 static void console_putchar(TextConsole *s, int ch)
 {
     TextCell *c, *d;
@@ -1230,9 +1253,9 @@ static void console_putchar(TextConsole *s, int ch)
 	    if (s->t_attrib.codec) {
 		if (s->unicodeIndex > 0) {
 		    if ((ch & 0xc0) != 0x80) {
-			/*TODO:complain here */
 			dprintf("bogus unicode data %u\n", ch);
-			return;
+			/* even tho we think it might be bogus, still print it */
+			do_putchar(s, ch);
 		    }
 		    s->unicodeData[s->unicodeIndex++] = ch;
 		    if (s->unicodeIndex < s->unicodeLength) {
@@ -1289,21 +1312,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    }
 
 /* end of utf 8 bit */
-
-	    put_norm(ch);
-	    if (s->wrapped) {
-		set_cursor(s, s->y, 0);
-		console_put_lf(s);
-	    }
-            c = &s->cells[cy(s->y) * s->width + s->x];
-            c->ch = ch;
-            c->t_attrib = s->t_attrib;
-	    c->t_attrib.used = 1;
-            update_xy(s, s->x, s->y);
-	    if (s->x + 1 < s->width)
-		set_cursor(s, s->y, s->x + 1);
-	    else if (s->autowrap)
-		s->wrapped = 1;
+	    do_putchar(s, ch);
             break;
         }
         break;
