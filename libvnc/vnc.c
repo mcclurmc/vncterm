@@ -528,7 +528,7 @@ static void send_custom_cursor(struct VncClientState *vcs)
     vnc_write_u16(vcs, 1); /* number of rects */
 
     /* width 8, height - number of bytes in mask, hotspot in the middle */
-    vnc_framebuffer_update(vcs, 8 / 2, sizeof(cursorbmsk), 8,
+    vnc_framebuffer_update(vcs, 8 / 2, sizeof(cursorbmsk) / 2, 8,
 			   sizeof(cursorbmsk), -239);
     vnc_write_pixels_generic(vcs, cursorcur, size);
     vnc_write(vcs, cursorbmsk, sizeof(cursorbmsk));
