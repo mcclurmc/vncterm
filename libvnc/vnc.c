@@ -95,6 +95,7 @@ struct vnc_pending_messages {
     uint8_t vpm_bell;
     uint8_t vpm_null_update;
     uint8_t vpm_server_cut_text;
+    uint8_t vpm_cursor_update;
     struct vnc_pm_region_update *vpm_region_updates;
     struct vnc_pm_region_update **vpm_region_updates_last;
 };
@@ -499,7 +500,7 @@ unsigned char cursorbmsk[16] = {
 #define SETONE(A) *cur++ = (A)
 #define SETFOUR(A) do { SETONE(A); SETONE(A); SETONE(A); SETONE(A); } while (0)
 
-static void send_custom_cursor(struct VncClientState *vcs)
+static void vnc_send_custom_cursor(struct VncClientState *vcs)
 {
     unsigned char *cursorcur, *cur;
     unsigned int size, i, j;
@@ -508,6 +509,8 @@ static void send_custom_cursor(struct VncClientState *vcs)
     if (vcs->has_cursor_encoding != 1)
 	return;
 
+    dprintf("sending custom cursor %d with bpp %d\n", vcs->csock,
+	    vcs->pix_bpp);
     size = sizeof(cursorbmsk) * 8 * 4;
     cursorcur = malloc(size);
     if (cursorcur == NULL)
@@ -517,7 +520,7 @@ static void send_custom_cursor(struct VncClientState *vcs)
 
     for (i = 0; i < sizeof(cursorbmsk); i++) {
 	for (j = 0; j < 8; j++) {
-	    if (cursorbmsk[i] & (1 << j))
+	    if (cursorbmsk[i] & (1 << (8 - j)))
 		SETFOUR(grayshade);
 	    else
 		SETFOUR(0);
@@ -532,7 +535,6 @@ static void send_custom_cursor(struct VncClientState *vcs)
 			   sizeof(cursorbmsk), -239);
     vnc_write_pixels_generic(vcs, cursorcur, size);
     vnc_write(vcs, cursorbmsk, sizeof(cursorbmsk));
-    vnc_flush(vcs);
 
     free(cursorcur);
 }
@@ -878,6 +880,10 @@ static int vnc_process_messages(struct VncClientState *vcs)
 	vnc_write(vcs, vs->server_cut_text,
 		  strlen(vs->server_cut_text)); /* text */
 	vpm->vpm_server_cut_text = 0;
+    }
+    if (vpm->vpm_cursor_update) {
+	vnc_send_custom_cursor(vcs);
+	vpm->vpm_cursor_update = 0;
     }
     if (vpm->vpm_region_updates) {
 	uint16_t n_rects;
@@ -1449,6 +1455,10 @@ static void set_pixel_format(struct VncClientState *vcs,
 
     vnc_dpy_resize(vs->ds, vs->ds->width, vs->ds->height);
 
+    dprintf("sending cursor %d for pixel format change\n", vcs->csock);
+    vcs->vpm.vpm_cursor_update = 1;
+    vnc_write_pending(vcs);
+
     if (vs->ds->hw_invalidate)
 	vs->ds->hw_invalidate(vs->ds->hw_opaque);
     if (vs->ds->hw_update)
@@ -1493,7 +1503,12 @@ static int protocol_client_msg(struct VncClientState *vcs, uint8_t *data,
 	set_encodings(vcs, (int32_t *)(data + 4), limit);
 
 	/* encodings available, immiedately update the cursor - if supported */
-	send_custom_cursor(vcs);
+	if (VCS_ACTIVE(vcs)) {
+	    dprintf("sending cursor %d for encodings change\n",
+		    vcs->csock);
+	    vcs->vpm.vpm_cursor_update = 1;
+	    vnc_write_pending(vcs);
+	}
 
 	break;
     case 3:
