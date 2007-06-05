@@ -109,6 +109,7 @@ struct VncClientState
     int has_resize;
     int has_hextile;
     int has_pointer_type_change;
+    int has_cursor_encoding;
 
     int absolute;
     int last_x;
@@ -474,6 +475,66 @@ static void vnc_write_pixels_generic(struct VncClientState *vcs,
         vnc_convert_pixel(vcs, buf, pixels[i]);
         vnc_write(vcs, buf, vcs->pix_bpp);
     }
+}
+
+unsigned char cursorbmsk[16]={
+	0xff, /* 11111111 */
+	0x3c, /* 00111100 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x18, /* 00011000 */
+	0x3c, /* 00111100 */
+	0xff, /* 11111111 */
+};
+
+#define SETONE(A) *cur++=A
+#define SETFOUR(A) SETONE(A);SETONE(A);SETONE(A);SETONE(A);
+
+static void send_custom_cursor(struct VncClientState *vcs)
+{
+
+    unsigned char* cursorcur, *cur;
+    unsigned int size,i,j;
+    const unsigned char grayshade=0xc0;
+
+    if (vcs->has_cursor_encoding != 1)
+	return;
+
+    size=sizeof(cursorbmsk)*8*4;
+    cursorcur=malloc(size);
+    if (cursorcur == NULL)
+	return;
+
+    cur=cursorcur;
+
+    for(i=0;i<sizeof(cursorbmsk);i++) {
+	for(j=0;j<8;j++) {
+	    if (cursorbmsk[i]&(1<<j)) {
+		SETFOUR(grayshade);
+	    }
+	    else {
+		SETFOUR(0);
+	    }
+	}
+    }
+
+    vnc_write_u16(vcs, 0);
+    vnc_write_u16(vcs, 1); /* number of rects */
+
+    /* width 8, height - number of bytes in mask, hotspot in the middle */
+    vnc_framebuffer_update( vcs, 8/2, sizeof(cursorbmsk), 8, sizeof(cursorbmsk), -239 );
+    vnc_write_pixels_generic(vcs, cursorcur, size);
+    vnc_write(vcs, cursorbmsk, sizeof(cursorbmsk));
+    vnc_flush(vcs);
 }
 
 static void hextile_enc_cord(uint8_t *ptr, int x, int y, int w, int h)
@@ -1273,6 +1334,7 @@ static void set_encodings(struct VncClientState *vcs, int32_t *encodings,
     vcs->has_hextile = 0;
     vcs->has_resize = 0;
     vcs->has_pointer_type_change = 0;
+    vcs->has_cursor_encoding = 0;
     vcs->absolute = -1;
 
     for (i = n_encodings - 1; i >= 0; i--) {
@@ -1285,6 +1347,9 @@ static void set_encodings(struct VncClientState *vcs, int32_t *encodings,
 	    break;
 	case -223: /* DesktopResize */
 	    vcs->has_resize = 1;
+	    break;
+	case -239: /* Cursor Pseud-Encoding */
+	    vcs->has_cursor_encoding = 1;
 	    break;
 	case -257:
 	    vcs->has_pointer_type_change = 1;
@@ -1426,6 +1491,10 @@ static int protocol_client_msg(struct VncClientState *vcs, uint8_t *data,
 	}
 
 	set_encodings(vcs, (int32_t *)(data + 4), limit);
+
+	/* encodings available, immiedately update the cursor - if supported */
+	send_custom_cursor(vcs);
+
 	break;
     case 3:
 	if (len == 1)
