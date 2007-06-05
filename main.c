@@ -457,7 +457,7 @@ main(int argc, char **argv, char **envp)
 	if (ret < 0)
 	    err(1, "asprintf");
 
-	ret = asprintf(&port, "%d", 5900 + display);
+	ret = asprintf(&port, "%d", display);
 	if (ret < 0)
 	    err(1, "asprintf");
 
