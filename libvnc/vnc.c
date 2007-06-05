@@ -477,7 +477,7 @@ static void vnc_write_pixels_generic(struct VncClientState *vcs,
     }
 }
 
-unsigned char cursorbmsk[16]={
+unsigned char cursorbmsk[16] = {
 	0xff, /* 11111111 */
 	0x3c, /* 00111100 */
 	0x18, /* 00011000 */
@@ -496,34 +496,31 @@ unsigned char cursorbmsk[16]={
 	0xff, /* 11111111 */
 };
 
-#define SETONE(A) *cur++=A
-#define SETFOUR(A) SETONE(A);SETONE(A);SETONE(A);SETONE(A);
+#define SETONE(A) *cur++ = (A)
+#define SETFOUR(A) do { SETONE(A); SETONE(A); SETONE(A); SETONE(A); } while (0)
 
 static void send_custom_cursor(struct VncClientState *vcs)
 {
-
-    unsigned char* cursorcur, *cur;
-    unsigned int size,i,j;
-    const unsigned char grayshade=0xc0;
+    unsigned char *cursorcur, *cur;
+    unsigned int size, i, j;
+    const unsigned char grayshade = 0xc0;
 
     if (vcs->has_cursor_encoding != 1)
 	return;
 
-    size=sizeof(cursorbmsk)*8*4;
-    cursorcur=malloc(size);
+    size = sizeof(cursorbmsk) * 8 * 4;
+    cursorcur = malloc(size);
     if (cursorcur == NULL)
 	return;
 
-    cur=cursorcur;
+    cur = cursorcur;
 
-    for(i=0;i<sizeof(cursorbmsk);i++) {
-	for(j=0;j<8;j++) {
-	    if (cursorbmsk[i]&(1<<j)) {
+    for (i = 0; i < sizeof(cursorbmsk); i++) {
+	for (j = 0; j < 8; j++) {
+	    if (cursorbmsk[i] & (1 << j))
 		SETFOUR(grayshade);
-	    }
-	    else {
+	    else
 		SETFOUR(0);
-	    }
 	}
     }
 
@@ -531,10 +528,13 @@ static void send_custom_cursor(struct VncClientState *vcs)
     vnc_write_u16(vcs, 1); /* number of rects */
 
     /* width 8, height - number of bytes in mask, hotspot in the middle */
-    vnc_framebuffer_update( vcs, 8/2, sizeof(cursorbmsk), 8, sizeof(cursorbmsk), -239 );
+    vnc_framebuffer_update(vcs, 8 / 2, sizeof(cursorbmsk), 8,
+			   sizeof(cursorbmsk), -239);
     vnc_write_pixels_generic(vcs, cursorcur, size);
     vnc_write(vcs, cursorbmsk, sizeof(cursorbmsk));
     vnc_flush(vcs);
+
+    free(cursorcur);
 }
 
 static void hextile_enc_cord(uint8_t *ptr, int x, int y, int w, int h)
