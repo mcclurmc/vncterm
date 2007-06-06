@@ -800,6 +800,7 @@ static void console_refresh(TextConsole *s)
 void
 update_mouse_selection(TextConsole *s, int x, int y, int display)
 {
+
     if (display) {
 	if (s->mouse_select == 0) {
 	    s->mouse_select_x = s->mouse_select_ex = x;
@@ -883,6 +884,19 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
     dprintf("mouse event %03x:%03x:%x:%x\n", dx, dy, dz, buttons_state);
     dx = dx * s->width / 0x7FFF;
     dy = dy * s->height / 0x7FFF;
+
+/* boundry check & fix */
+    if (dy>s->height-1) 
+	dy=s->height-1;
+
+    if (dx>s->width-1) 
+	dx=s->width-1;
+
+    if (dy<0) 
+	dy=0;
+
+    if (dx<0)
+	dx=0;
 
     if (dz == -1)
 	console_scroll(-1);
