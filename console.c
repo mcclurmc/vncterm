@@ -125,6 +125,11 @@ write_or_chunk(struct chunked_stream *s, uint8_t *buf, int len)
     s->chunk_tail = &chunk->next;
 }
 
+struct selection{
+    int startx, starty;
+    int endx, endy;
+};
+
 /* ??? This is mis-named.
    It is used for both text and graphical consoles.  */
 struct TextConsole {
@@ -164,14 +169,13 @@ struct TextConsole {
 
     struct chunked_stream input_stream;
 
+/* first one for current selection, second one for old */
+    struct selection selections[2];
+    int selecting;
+
     int mouse_x;
     int mouse_y;
     int display_mouse;
-    int mouse_select;
-    int mouse_select_x;
-    int mouse_select_y;
-    int mouse_select_ex;
-    int mouse_select_ey;
 
 /* unicode bits */
     int unicodeIndex;
@@ -797,27 +801,6 @@ static void console_refresh(TextConsole *s)
 	update_mouse(s, s->mouse_x, s->mouse_y, 1, 1);
 }
 
-void
-update_mouse_selection(TextConsole *s, int x, int y, int display)
-{
-
-    if (display) {
-	if (s->mouse_select == 0) {
-	    s->mouse_select_x = s->mouse_select_ex = x;
-	    s->mouse_select_y = s->mouse_select_ey = y;
-	    s->mouse_select = 1;
-	    highlight(s, y, x, y, x + 1, 0, 1, 1);
-	}
-	else
-	    highlight(s, s->mouse_select_ey, s->mouse_select_ex, y, x, 0, 1, 1);
-	s->mouse_select_ey = y;
-	s->mouse_select_ex = x;
-    } else {
-	highlight(s, s->mouse_select_y, s->mouse_select_x + 1,
-		  s->mouse_select_ey, s->mouse_select_ex, 0, 1, 1);
-    }
-}
-
 static void console_scroll(int ydelta)
 {
     TextConsole *s;
@@ -874,6 +857,11 @@ static void clear(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
     }
 }
 
+#define zero_selection(A,B) {memset( &A->selections[B],0,sizeof(struct selection) );}
+#define is_selection_zero(A,B) ((A->selections[B].startx | \
+				A->selections[B].starty | \
+				A->selections[B].endx | \
+				A->selections[B].endy ) == 0 )
 void
 mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 {
@@ -886,10 +874,10 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
     dy = dy * s->height / 0x7FFF;
 
 /* boundry check & fix */
-    if (dy>s->height-1) 
+    if (dy>s->height-1)
 	dy=s->height-1;
 
-    if (dx>s->width-1) 
+    if (dx>s->width-1)
 	dx=s->width-1;
 
     if (dy<0) 
@@ -903,17 +891,46 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
     if (dz == 1)
 	console_scroll(1);
 
+    s->mouse_x = dx;
+    s->mouse_y = dy;
+
+    /* button not pressed */
     if (buttons_state == 0) {
-	if (s->mouse_select) {
-	    text = get_text(s, s->mouse_select_y, s->mouse_select_x,
-			   s->mouse_select_ey, s->mouse_select_ex);
+
+        /* if button was pressed before, means we have to grab selected text
+           end send it to peer's clipboard */
+	if (s->selecting) {
+	    text = get_text(s, s->selections[0].starty, s->selections[0].startx,
+			   s->selections[0].endy, s->selections[0].endx);
 	    s->ds->dpy_set_server_text(s->ds, text);
-	    update_mouse_selection(s, dx, dy, 0);
-	    s->mouse_select = 0;
+	    /* set flag, copy current selection to old one */
+	    s->selecting = 0;
+	    memcpy( &s->selections[1], &s->selections[0], sizeof(struct selection) );
 	}
-	//update_mouse(s, dx, dy, 1, 0);
     } else if (buttons_state == 1) {
-	update_mouse_selection(s, dx, dy, 1);
+        /* button pressed, no selection made - we have to initialze selection */
+	if (s->selecting == 0 ){
+	    /* if previous highlight is still displayed, 
+               we have to cancel it */
+	    if ( !is_selection_zero(s, 1) )
+		highlight(s, s->selections[1].starty, s->selections[1].startx,
+			   s->selections[1].endy, s->selections[1].endx, 0, 1, 1);
+	    zero_selection(s, 1);
+	    /* initialize current coordinates */
+	    s->selections[0].startx = dx;
+	    s->selections[0].starty = dy;
+	    s->selections[0].endx = dx;
+	    s->selections[0].endy = dy;
+	    s->selecting=1;
+	    /* highlite current character */
+	    highlight(s, dy, dx, dy, dx, 0, 1, 1);
+	}
+	else {
+	    /* in this case, we just have to update selection */
+	    highlight(s, s->selections[0].endy, s->selections[0].endx, dy, dx, 0, 1, 1);
+	    s->selections[0].endx = dx;
+	    s->selections[0].endy = dy;
+	}
     }
 }
 
@@ -2067,6 +2084,9 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->y_base = 0;
     s->total_height = DEFAULT_BACKSCROLL;
     set_cursor(s, 0, 0);
+
+    zero_selection(s, 1);
+
     s->mouse_x = -1;
     s->mouse_y = -1;
     s->g_width = s->ds->width;
