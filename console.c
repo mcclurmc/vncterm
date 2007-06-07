@@ -175,7 +175,6 @@ struct TextConsole {
 
     int mouse_x;
     int mouse_y;
-    int display_mouse;
 
 /* unicode bits */
     int unicodeIndex;
@@ -491,8 +490,7 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
     dprintf("font:%d\n", t_attrib->font);
 
     if (t_attrib->invers ^ c_attrib->highlit ^
-	((s->cursor_visible && x == s->x && y == s->y) ||
-	 (s->display_mouse && x == s->mouse_x && y == s->mouse_y)))
+	((s->cursor_visible && x == s->x && y == s->y) ))
     {
         bgcol = color_table[0][t_attrib->fgcol];
         fgcol = color_table[t_attrib->bold][t_attrib->bgcol];
@@ -729,7 +727,7 @@ highlight(TextConsole *s, int from_y, int from_x, int to_y, int to_x,
 	}
     }
 }
-
+/*
 static void
 refresh(TextConsole *s, int y, int x)
 {
@@ -743,36 +741,11 @@ refresh(TextConsole *s, int y, int x)
     s->ds->dpy_update(s->ds, x * FONT_WIDTH, y * FONT_HEIGHT,
 		      FONT_WIDTH, FONT_HEIGHT);
 }
-
+*/
 int
 mouse_is_absolute(void *opaque)
 {
     return 1;
-}
-
-void
-update_mouse(TextConsole *s, int x, int y, int display, int redisplay)
-{
-    
-    if (s != active_console)
-	return;
-
-    if (display && s->mouse_x == x && s->mouse_y == y && !redisplay)
-	return;
-
-    s->display_mouse = 0;
-    refresh(s, s->mouse_y, s->mouse_x);
-
-    // highlight(s, s->mouse_y, s->mouse_x, s->mouse_y, s->mouse_x + 1, 0, 0, 0);
-    if (display && x < s->width && y < s->height) {
-	s->mouse_x = x;
-	s->mouse_y = y;
-	//highlight(s, s->mouse_y, s->mouse_x, s->mouse_y, s->mouse_x + 1,
-	//  1, 0, 0);
-	s->display_mouse = 1;
-	refresh(s, s->mouse_y, s->mouse_x);
-    } else
-	s->display_mouse = 0;
 }
 
 static void console_refresh(TextConsole *s)
@@ -797,8 +770,6 @@ static void console_refresh(TextConsole *s)
     }
     s->ds->dpy_update(s->ds, 0, 0, s->ds->width, s->ds->height);
     console_show_cursor(s, 1);
-    if (s->display_mouse)
-	update_mouse(s, s->mouse_x, s->mouse_y, 1, 1);
 }
 
 static void console_scroll(int ydelta)
@@ -902,7 +873,10 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	if (s->selecting) {
 	    text = get_text(s, s->selections[0].starty, s->selections[0].startx,
 			   s->selections[0].endy, s->selections[0].endx);
-	    s->ds->dpy_set_server_text(s->ds, text);
+
+	    if ( strlen(text) )
+		s->ds->dpy_set_server_text(s->ds, text);
+
 	    /* set flag, copy current selection to old one */
 	    s->selecting = 0;
 	    memcpy( &s->selections[1], &s->selections[0], sizeof(struct selection) );
@@ -1229,7 +1203,6 @@ static void console_putchar(TextConsole *s, int ch)
 
     dprintf("putchar %d '%c' state:%d \n", ch, ch, s->state);
 
-    update_mouse(s, s->mouse_x, s->mouse_y, 0, 0);
     switch(s->state) {
     case TTY_STATE_NORM:
 	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
