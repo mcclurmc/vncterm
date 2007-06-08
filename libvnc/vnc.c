@@ -423,28 +423,31 @@ static void vnc_write_pixels_copy(struct VncClientState *vcs, void *pixels,
 }
 
 /* slowest but generic code. */
+
 static void vnc_convert_pixel(struct VncClientState *vcs, uint8_t *buf,
 			      uint32_t v)
 {
-    unsigned int r, g, b;
+    unsigned int r, g, b, o;
 
     r = (v >> vcs->red_shift1) & vcs->red_max;
     g = (v >> vcs->green_shift1) & vcs->green_max;
     b = (v >> vcs->blue_shift1) & vcs->blue_max;
-    v = (r << vcs->red_shift) | 
+
+    o = (r << vcs->red_shift) | 
         (g << vcs->green_shift) | 
         (b << vcs->blue_shift);
+
     switch(vcs->pix_bpp) {
     case 1:
-        buf[0] = v;
+        buf[0] = o;
         break;
     case 2:
         if (vcs->pix_big_endian) {
-            buf[0] = v >> 8;
-            buf[1] = v;
+            buf[0] = o >> 8;
+            buf[1] = o;
         } else {
-            buf[1] = v >> 8;
-            buf[0] = v;
+            buf[1] = o >> 8;
+            buf[0] = o;
         }
         break;
     default:
@@ -498,7 +501,7 @@ unsigned char cursorbmsk[16] = {
 };
 
 #define SETONE(A) *cur++ = (A)
-#define SETFOUR(A) do { SETONE(A); SETONE(A); SETONE(A); SETONE(A); } while (0)
+#define SET0RGB(A) do { SETONE(A); SETONE(A); SETONE(A); SETONE(0); } while (0)
 
 static void vnc_send_custom_cursor(struct VncClientState *vcs)
 {
@@ -521,9 +524,9 @@ static void vnc_send_custom_cursor(struct VncClientState *vcs)
     for (i = 0; i < sizeof(cursorbmsk); i++) {
 	for (j = 0; j < 8; j++) {
 	    if (cursorbmsk[i] & (1 << (8 - j)))
-		SETFOUR(grayshade);
+		SET0RGB(grayshade);
 	    else
-		SETFOUR(0);
+		SET0RGB(0);
 	}
     }
 
