@@ -31,7 +31,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-// #define DEBUG_VNC
+//#define DEBUG_VNC
 #ifdef DEBUG_VNC
 #define dprintf(s, ...) printf(s, ## __VA_ARGS__)
 #else
@@ -744,6 +744,7 @@ static void vnc_set_server_text(DisplayState *ds, char *text)
     for (i = 0; i < MAX_CLIENTS; i++)
 	if (VCS_ACTIVE(vs->vcs[i]))
 	    vs->vcs[i]->vpm.vpm_server_cut_text = 1;
+    vnc_write_pending_all(vs);
     dprintf("set server text %s\n", vs->server_cut_text);
 }
 
