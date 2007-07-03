@@ -1089,6 +1089,12 @@ static int32_t read_s32(uint8_t *data, size_t offset)
 
 static void client_cut_text(VncState *vs, size_t len, char *text)
 {
+	int i;
+
+	dprintf("paste:\"%s\"\n", text);
+
+	for( i=0;i<len;i++ )
+		vs->ds->kbd_put_keysym(text[i]);
 }
 
 static void check_pointer_type_change(struct VncClientState *vcs, int absolute)
