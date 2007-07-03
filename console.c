@@ -1918,10 +1918,10 @@ void kbd_put_keysym(int keysym)
     case QEMU_KEY_CTRL_DOWN:
         console_scroll(1);
         break;
-    case QEMU_KEY_CTRL_PAGEUP:
+    case QEMU_KEY_SHIFT_PAGEUP:
         console_scroll(-10);
         break;
-    case QEMU_KEY_CTRL_PAGEDOWN:
+    case QEMU_KEY_SHIFT_PAGEDOWN:
         console_scroll(10);
         break;
     default:
