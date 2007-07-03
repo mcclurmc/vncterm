@@ -212,7 +212,7 @@ static int nb_consoles = 0;
 	    (s)->v = (s)->width - 1;	\
     }
 
-#define cy(y) ((s->y_base + (y)) % s->total_height)
+#define cy(y) ((s->y_displayed + (y)) % s->total_height)
 
 /* convert a RGBA color to a color index usable in graphic primitives */
 static unsigned int vga_get_color(DisplayState *ds, unsigned int rgba)
@@ -776,7 +776,7 @@ static void console_scroll(int ydelta)
 {
     TextConsole *s;
     int i, y1;
-    
+
     s = active_console;
     if (!s || !s->text_console)
         return;
