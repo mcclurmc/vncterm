@@ -67,7 +67,9 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *sa,
 #define QEMU_KEY_PAGEDOWN   QEMU_KEY_ESC1(6)
 #define QEMU_KEY_DELETE     QEMU_KEY_ESC1(3)
 
-#define QEMU_KEY_MOD_CTRL 0x300
+#define QEMU_KEY_MOD_CTRL  0x300
+#define QEMU_KEY_MOD_SHIFT 0x400
+
 #define QEMU_KEY_CTRL_UP         (QEMU_KEY_UP + QEMU_KEY_MOD_CTRL)
 #define QEMU_KEY_CTRL_DOWN       (QEMU_KEY_DOWN + QEMU_KEY_MOD_CTRL)
 #define QEMU_KEY_CTRL_LEFT       (QEMU_KEY_LEFT + QEMU_KEY_MOD_CTRL)
@@ -76,5 +78,9 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *sa,
 #define QEMU_KEY_CTRL_END        (QEMU_KEY_END + QEMU_KEY_MOD_CTRL)
 #define QEMU_KEY_CTRL_PAGEUP     (QEMU_KEY_PAGEUP + QEMU_KEY_MOD_CTRL)
 #define QEMU_KEY_CTRL_PAGEDOWN   (QEMU_KEY_PAGEDOWN + QEMU_KEY_MOD_CTRL)
+#define QEMU_KEY_SHIFT_PAGEUP     (QEMU_KEY_PAGEUP + QEMU_KEY_MOD_SHIFT)
+#define QEMU_KEY_SHIFT_PAGEDOWN   (QEMU_KEY_PAGEDOWN + QEMU_KEY_MOD_SHIFT)
+
+
 
 #endif /* _LIBVNC_LIBVNC_H */

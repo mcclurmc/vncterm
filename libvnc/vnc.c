@@ -1237,6 +1237,9 @@ static void do_key_event(VncState *vs, int down, uint32_t sym)
 	    int mod = 0;
 	    if (vs->modifiers_state[0x1d] || vs->modifiers_state[0x9d])
 		mod += QEMU_KEY_MOD_CTRL;
+	    if (vs->modifiers_state[0x36] || vs->modifiers_state[0x2a])
+		 mod += QEMU_KEY_MOD_SHIFT;
+
             switch (keycode) {
             case 0x2a:                          /* Left Shift */
             case 0x36:                          /* Right Shift */
