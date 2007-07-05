@@ -215,7 +215,7 @@ run_process(CharDriverState *console, const char *filename,
 
     p->console = console;
 
-    ws.ws_row = 25;
+    ws.ws_row = 24;
     ws.ws_col = 80;
     ws.ws_xpixel = ws.ws_col * 8;
     ws.ws_ypixel = ws.ws_row * 16;
