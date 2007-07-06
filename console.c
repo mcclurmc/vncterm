@@ -1015,11 +1015,24 @@ static void va_write(TextConsole *s, char *f, ...)
 
 static void console_put_lf(TextConsole *s)
 {
-
     set_cursor(s, s->y + 1, s->x);
     if (s->y > s->bot_marg) {
         set_cursor(s, s->bot_marg, s->x);
 	scroll_up(s, s->top_marg, s->bot_marg, 1);
+    }
+}
+
+static void console_put_cr(TextConsole *s)
+{
+    set_cursor(s, s->y, 0);
+}
+
+static void console_put_ri(TextConsole *s)
+{
+    set_cursor(s, s->y - 1, 0);
+    if (s->y < s->top_marg) {
+	set_cursor(s, s->top_marg, s->x);;
+	scroll_down(s, s->top_marg, s->bot_marg, 1);
     }
 }
 
@@ -1195,6 +1208,49 @@ static void do_putchar(TextConsole *s, int ch)
 
 }
 
+static int handle_params(TextConsole *s, int ch)
+{
+    int i;
+
+    dprintf("putchar csi %c %02x\n", ch > 0x1f ? ch : ' ', ch);
+    if (ch >= '0' && ch <= '9') {
+	if (s->nb_esc_params < MAX_ESC_PARAMS) {
+	    s->esc_params[s->nb_esc_params] = 
+		s->esc_params[s->nb_esc_params] * 10 + ch - '0';
+	}
+	s->has_esc_param = 1;
+	return 0;
+    } else {
+	if (s->has_esc_param)
+	    s->nb_esc_params++;
+	s->has_esc_param = 0;
+	if (ch == '?') {
+	    s->has_qmark = 1;
+	    return 0;
+	}
+	if (ch == ';')
+	    return 0;
+	dprintf("csi %x[%c] with args", ch,
+		ch > 0x1f ? ch : ' ');
+	if (s->has_qmark)
+	    dprintf(" ?");
+	for (i = 0; i < s->nb_esc_params; i++)
+	    dprintf(" 0x%0x/%d", s->esc_params[i], s->esc_params[i]);
+	dprintf("\n");
+    }
+    return 1;
+}
+
+static void reset_params(TextConsole *s)
+{
+    int i;
+
+    for(i=0;i<MAX_ESC_PARAMS;i++)
+	s->esc_params[i] = 0;
+    s->nb_esc_params = 0;
+    s->has_qmark = 0;
+}
+
 static void console_putchar(TextConsole *s, int ch)
 {
     TextCell *c, *d;
@@ -1239,16 +1295,19 @@ static void console_putchar(TextConsole *s, int ch)
 	    s->t_attrib.font = G0;
             break;
         case CAN:
+	case ESN:
             dprintf("not implemented CAN");
             break;
         case ESC:
             print_norm();
+	    reset_params(s);
             s->state = TTY_STATE_ESC;
             break;
         case DEL: /* according to term=linux 'standard' should be ignored.*/
             break;
         case CSI:
             print_norm();
+	    reset_params(s);
             s->state = TTY_STATE_CSI;
             break;
 
@@ -1341,6 +1400,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    console_put_lf(s);
 	    break;
 	case 'H': /* Set tab stop at current column.*/
+
 	    break;
 	case 'Z': /* DEC private identification */
 	    va_write(s, "\033[?1;2C");
@@ -1363,46 +1423,27 @@ static void console_putchar(TextConsole *s, int ch)
 	    }
 	    break;
 	case '(': /* G0 charset */
+	    s->t_attrib.font = G0;
+	    break;
 	case ')': /* G1 charset */
+	    s->t_attrib.font = G1;
+	    break;
+/*
 	case '+':
 	case '*':
 	case '$':
-		if (s->nb_esc_params==1) {
-		    switch(s->esc_params[0]) {
-			case '0':
-			    s->t_attrib.font = G1;
-			break;
-			default:
-			case 'B':
-			    s->t_attrib.font = G0;
-			break;
-		    }
-		}
-		dprintf("charset stuff %c/%d, params: ", ch, ch);
-		for (i = 0; i < s->nb_esc_params; i++)
-		    dprintf(" %0x/%d", s->esc_params[i], s->esc_params[i]);
-		dprintf("\n");
 	    break;
+*/
 	case '[': /* CSI */
-            for(i=0;i<MAX_ESC_PARAMS;i++)
-                s->esc_params[i] = 0;
-            s->nb_esc_params = 0;
-	    s->has_qmark = 0;
+	    reset_params(s);
             s->state = TTY_STATE_CSI;
 	    break;
 	case 'E': /* new line */
-	    set_cursor(s, s->y + 1, 0);
-	    if (s->y > s->bot_marg) {
-		set_cursor(s, s->bot_marg, s->x);
-		scroll_up(s, s->top_marg, s->bot_marg, 1);
-	    }
+	    console_put_lf(s);
+	    console_put_cr(s);
 	    break;
 	case 'M': /* reverse linefeed */
-	    set_cursor(s, s->y - 1, 0);
-	    if (s->y < s->top_marg) {
-		set_cursor(s, s->top_marg, s->x);;
-		scroll_down(s, s->top_marg, s->bot_marg, 1);
-	    }
+	    console_put_ri(s);
 	    break;
 	case '7': /* save current state */
 	    s->saved_x = s->x;
@@ -1416,31 +1457,8 @@ static void console_putchar(TextConsole *s, int ch)
         }
         break;
     case TTY_STATE_CSI: /* handle escape sequence parameters */
-	dprintf("putchar csi %c %02x\n", ch > 0x1f ? ch : ' ', ch);
-        if (ch >= '0' && ch <= '9') {
-            if (s->nb_esc_params < MAX_ESC_PARAMS) {
-                s->esc_params[s->nb_esc_params] = 
-                    s->esc_params[s->nb_esc_params] * 10 + ch - '0';
-            }
-	    s->has_esc_param = 1;
-        } else {
-	    if (s->has_esc_param)
-		s->nb_esc_params++;
-	    s->has_esc_param = 0;
-	    if (ch == '?') {
-		s->has_qmark = 1;
-		break;
-	    }
-            if (ch == ';')
-                break;
-	    dprintf("csi %x[%c] with args", ch,
-		   ch > 0x1f ? ch : ' ');
-	    if (s->has_qmark)
-		dprintf(" ?");
-	    for (i = 0; i < s->nb_esc_params; i++)
-		dprintf(" 0x%0x/%d", s->esc_params[i], s->esc_params[i]);
-	    dprintf("\n");
-            s->state = TTY_STATE_NORM;
+	if (handle_params(s, ch)) {
+           s->state = TTY_STATE_NORM;
             switch(ch) {
 	    case '@': /* ins del characters */
 		y1 = cy(s->y);

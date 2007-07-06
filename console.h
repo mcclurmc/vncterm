@@ -20,6 +20,7 @@
 #define SO 0x0E
 #define SI 0x0F
 #define CAN 0x18
+#define ESN 0x1A
 #define ESC 0x1B
 #define DEL 0x7F
 #define CSI 0x9B
