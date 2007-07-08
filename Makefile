@@ -7,7 +7,7 @@ LIBS := libvnc/libvnc.a
 
 CFLAGS  = -I$(shell pwd)/include
 # _GNU_SOURCE for asprintf.
-CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE -DDEBUG_CONSOLE
+CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE
 CFLAGS += -Wall -Werror -g -O1
 
 ifeq ($(shell uname),Linux)
