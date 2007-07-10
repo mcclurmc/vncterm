@@ -174,6 +174,8 @@ struct VncState
     int send_resize;
 
     char *server_cut_text;
+    char *client_cut_text;
+    unsigned int client_cut_text_size;
 };
 
 #if 0
@@ -1087,14 +1089,24 @@ static int32_t read_s32(uint8_t *data, size_t offset)
     return (int32_t)read_u32(data, offset);
 }
 
-static void client_cut_text(VncState *vs, size_t len, char *text)
+static void client_cut_text_update(VncState *vs, size_t len, char *text)
 {
-	int i;
+    dprintf("paste clipboard update:\"%s\"\n", text);
 
-	dprintf("paste:\"%s\"\n", text);
+    vs->client_cut_text = realloc(vs->client_cut_text, len);
+    if (vs->client_cut_text == NULL)
+	return;
 
-	for( i=0;i<len;i++ )
-		vs->ds->kbd_put_keysym(text[i]);
+    memcpy(vs->client_cut_text, text, len);
+    vs->client_cut_text_size = len;
+}
+
+static void client_cut_text(VncState *vs)
+{
+    unsigned int i;
+
+    for(i=0;i<vs->client_cut_text_size;i++)
+	vs->ds->kbd_put_keysym(vs->client_cut_text[i]);
 }
 
 static void check_pointer_type_change(struct VncClientState *vcs, int absolute)
@@ -1130,6 +1142,11 @@ static void pointer_event(struct VncClientState *vcs, int button_mask,
 	dz = -1;
     if (button_mask & 0x10)
 	dz = 1;
+
+    if (buttons == MOUSE_EVENT_MBUTTON && !dz) {
+	client_cut_text(vs);
+	return;
+    }
 
     if (vcs->absolute) {
 	vs->ds->mouse_event(x * 0x7FFF / vs->ds->width,
@@ -1178,7 +1195,7 @@ static void do_key_event(VncState *vs, int down, uint32_t sym)
     int keycode;
 
     keycode = keysym2scancode(vs->kbd_layout, sym & 0xFFFF);
-    
+
     /* QEMU console switch */
     switch(keycode) {
     case 0x2a:                          /* Left Shift */
@@ -1548,7 +1565,7 @@ static int protocol_client_msg(struct VncClientState *vcs, uint8_t *data,
 		return 8 + v;
 	}
 
-	client_cut_text(vs, read_u32(data, 4), (char *)(data + 8));
+	client_cut_text_update(vs, read_u32(data, 4), (char *)(data + 8));
 	break;
     case 254: // Special case, sending keyboard scan codes
 	if (len == 1)
@@ -1783,7 +1800,10 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
     if (!vs)
 	exit(1);
 
+    memset(vs, 0, sizeof(VncState));
+
     ds->opaque = vs;
+
 #if 0
     vnc_state = vs;
     vs->display = arg;
