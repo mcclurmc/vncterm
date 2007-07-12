@@ -29,6 +29,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include "debug.h"
+#include "consmap.h"
 
 #define DEFAULT_BACKSCROLL 512
 #define MAX_CONSOLES 12
@@ -43,8 +44,6 @@
 #define G0	0
 #define G1	1
 
-static int utf8map[256];
-
 typedef struct TextAttributes {
     uint8_t fgcol:4;
     uint8_t bgcol:4;
@@ -54,8 +53,9 @@ typedef struct TextAttributes {
     uint8_t invers:1;
     uint8_t unvisible:1;
     uint8_t used:1;
-    uint8_t font:2;
-    uint8_t codec:1; /* utf8 or not */
+    uint8_t utf:1;
+    uint8_t font:1;	/* 0 or 1 */
+    uint8_t codec[2]; /* 0-3 translation table per font */
 } TextAttributes;
 
 typedef struct CellAttributes {
@@ -74,7 +74,19 @@ typedef struct TextCell {
 enum TTYState {
     TTY_STATE_NORM,
     TTY_STATE_ESC,
+    TTY_STATE_PERCENT,
+    TTY_STATE_G0,
+    TTY_STATE_G1,
     TTY_STATE_CSI
+/*
+XXX to be done
+    TTY_STATE_HASH,
+    TTY_STATE_NONSTD,
+    TTY_STATE_PALETTE,
+    TTY_STATE_SQUARE,
+    TTY_STATE_GETPARS,
+    TTY_STATE_GOTPARS,
+*/
 };
 
 struct stream_chunk
@@ -401,26 +413,37 @@ static const uint32_t color_table_rgb[2][8] = {
     }
 };
 
-#define UTFVAL(A) (utf8map[A]&0xffff)
+#define UTFVAL(B) (consmap[curf][B]&0xffff)
 /* simplest binary search */
-static int get_glyphcode( int utf) {
+static int get_glyphcode(TextConsole *s, int chart)
+{
     int low = 0, high = 255, mid;
-    int h=0;
+    int h=0, o=0;
+    int curf = s->t_attrib.codec[s->t_attrib.font];
+
+    /* there is no point in transcribing latin1 char */
+    if (curf == MAPLAT1) {
+	if (chart < 256)
+	    return chart;
+	else
+	    curf = MAPGRAF;
+    }
 
     while(low <= high) {
 	h++;
 	mid = (low + high) / 2;
-	if (UTFVAL(mid) > utf)
+	if (UTFVAL(mid) > chart)
 	    high = mid - 1;
 	else 
-	if (UTFVAL(mid) < utf)
+	if (UTFVAL(mid) < chart)
 	    low = mid + 1;
 	else {
-	    dprintf("binsearch lookups: %d\n", h);
-	    return (utf8map[mid]>>16)&0xff;
+	    o = (consmap[curf][mid]>>16)&0xff;
+	    break;
         }
     }
-    return 0;
+    dprintf("utf8: %x to: %x, lookups: %d\n", chart, o, h);
+    return o;
 }
 
 static inline unsigned int col_expand(DisplayState *ds, unsigned int col)
@@ -504,13 +527,14 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
         ds->linesize * y * FONT_HEIGHT + bpp * x * FONT_WIDTH;
     linesize = ds->linesize;
 
+dprintf("vga_putcharxy: %d font:%d\n", ch, t_attrib->font );
     switch( t_attrib->font ) {
-	case G1:
-	    font_ptr = graphfont16 + FONT_HEIGHT * ch;
-	break;
 	case G0:
-	default:
 	    font_ptr = vgafont16 + FONT_HEIGHT * ch;
+	break;
+	case G1:
+	default:
+	    font_ptr = graphfont16 + FONT_HEIGHT * ch;
 	break;
     }
 
@@ -1045,13 +1069,13 @@ static void console_handle_escape(TextConsole *s)
 {
     int i;
 
-    dprintf("handle escape %d\n", s->nb_esc_params);
+    dprintf("handle ESC CSI M %d\n", s->nb_esc_params);
     if (s->nb_esc_params == 0) { /* ESC[m sets all attributes to default */
         s->t_attrib = s->t_attrib_default;
         return;
     }
     for (i=0; i<s->nb_esc_params; i++) {
-	dprintf("putchar escape param %d\n", s->esc_params[i]);
+	dprintf("\tparam %d\n", s->esc_params[i]);
         switch (s->esc_params[i]) {
             case 0: /* reset all console attributes to default */
                 s->t_attrib = s->t_attrib_default;
@@ -1261,16 +1285,19 @@ static void console_putchar(TextConsole *s, int ch)
 
     switch(s->state) {
     case TTY_STATE_NORM:
-	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
+//	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
         switch(ch) {
         case BEL:
+	    dprintf("bell\n");
 	    s->ds->dpy_bell(s->ds);
             break;
         case BS:
+	    dprintf("BS\n");
             if (s->x > 0) 
                 set_cursor(s, s->y, s->x - 1);
             break;
         case HT:
+	    dprintf("HT\n");
             if (s->x + (8 - (s->x % 8)) > s->width) {
                 set_cursor(s, s->y, 0);
                 console_put_lf(s);
@@ -1281,9 +1308,11 @@ static void console_putchar(TextConsole *s, int ch)
         case LF:
         case VT:
         case FF:
+	    dprintf("LF\n");
             console_put_lf(s);
             break;
         case CR:
+	    dprintf("CR\n");
             set_cursor(s, s->y, 0);
             break;
         case SO:
@@ -1299,6 +1328,7 @@ static void console_putchar(TextConsole *s, int ch)
             dprintf("not implemented CAN");
             break;
         case ESC:
+            dprintf("ESC state\n");
             print_norm();
 	    reset_params(s);
             s->state = TTY_STATE_ESC;
@@ -1306,6 +1336,7 @@ static void console_putchar(TextConsole *s, int ch)
         case DEL: /* according to term=linux 'standard' should be ignored.*/
             break;
         case CSI:
+            dprintf("CSI state\n");
             print_norm();
 	    reset_params(s);
             s->state = TTY_STATE_CSI;
@@ -1346,7 +1377,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    }
 		    /* get it from lookup table, cp437_to_uni.trans */
 		    och=ch;
-		    ch = get_glyphcode(ch);
+		    ch = get_glyphcode(s,ch);
 		    s->unicodeIndex = 0;
 		    dprintf("utf8: %x to: %x\n", och, ch);	
 		} 
@@ -1390,71 +1421,71 @@ static void console_putchar(TextConsole *s, int ch)
 	    break;
 	case '=': /* Set application keypad mode */
 	    break;
+	case '#': /* boo */
+	    dprintf("DECTEST: this should print E's on screen\n");
+	    break;
 	case 'c': /* reset */
+	    dprintf("RESET\n");
 	    set_cursor(s, 0, 0);
 	    s->nb_esc_params = 0;
             s->t_attrib = s->t_attrib_default;
 	    clear(s, s->y, s->x, s->height - 1, s->width);
 	    break;
 	case 'D': /* linefeed */
+	    dprintf("ESC_LF\n");
 	    console_put_lf(s);
 	    break;
 	case 'H': /* Set tab stop at current column.*/
-
+	    dprintf("TAB stop - unimplemented\n");
 	    break;
 	case 'Z': /* DEC private identification */
+	    dprintf("DEC INDENT\n");
 	    va_write(s, "\033[?1;2C");
 	    break;
 	/* charset selection */
 	case '%':
-	    if ( s->nb_esc_params < 1 ) {
-		break;
-	    }
-	    switch(s->esc_params[0]) {
-		/* set default G0 */
-		case '@':
-		    s->t_attrib.codec = 0;
-		    break;
-		/* utf8 */
-		case 'G':
-		case '8':
-		    s->t_attrib.codec = 1;
-		    break;
-	    }
+	    dprintf("ESC PERCENT\n");
+	    s->state = TTY_STATE_PERCENT;
 	    break;
 	case '(': /* G0 charset */
-	    s->t_attrib.font = G0;
+	    dprintf("ESC (\n");
+	    s->state = TTY_STATE_G0;
 	    break;
 	case ')': /* G1 charset */
-	    s->t_attrib.font = G1;
+	    dprintf("ESC )\n");
+	    s->state = TTY_STATE_G1;
 	    break;
-/*
-	case '+':
-	case '*':
-	case '$':
-	    break;
-*/
+
 	case '[': /* CSI */
 	    reset_params(s);
             s->state = TTY_STATE_CSI;
 	    break;
 	case 'E': /* new line */
+	    dprintf("ESC LF CR\n");
 	    console_put_lf(s);
 	    console_put_cr(s);
 	    break;
 	case 'M': /* reverse linefeed */
+	    dprintf("ESC RLF\n");
 	    console_put_ri(s);
 	    break;
 	case '7': /* save current state */
+	    dprintf("ESC SAVE STATE\n");
 	    s->saved_x = s->x;
 	    s->saved_y = s->y;
 	    s->saved_t_attrib = s->t_attrib;
 	    break;
 	case '8': /* restore current state */
+	    dprintf("ESC RESTORE STATE\n");
 	    set_cursor(s, s->saved_y, s->saved_x);
 	    s->t_attrib = s->saved_t_attrib;
 	    break;
-        }
+        case 'P':
+	case 'R':
+	default:
+	    dprintf("unknown STATE_ESC command %d\n", ch);
+	    break;
+	 }
         break;
     case TTY_STATE_CSI: /* handle escape sequence parameters */
 	if (handle_params(s, ch)) {
@@ -1599,7 +1630,7 @@ static void console_putchar(TextConsole *s, int ch)
                 }
                 break;
             case 'X':
-		if (s->esc_params[0] == 0)
+		if (s->nb_esc_params == 0)
 		    s->esc_params[0] = 1;
 		clear(s, s->y, s->x, s->y, s->x + s->esc_params[0]);
                 break;
@@ -1734,6 +1765,9 @@ static void console_putchar(TextConsole *s, int ch)
 			switch values are all 0 */
 		    va_write(s, "\033[2;1;1;120;120;1;0x");
 		break;
+	    case ']':
+		dprintf("setterm(%d) NOT IMPLEMENTED\n", s->esc_params[0]);
+		break;
             default:
 		dprintf("unknown command %x[%c] with args", ch,
 		       ch > 0x1f ? ch : ' ');
@@ -1743,6 +1777,40 @@ static void console_putchar(TextConsole *s, int ch)
                 break;
             }
             break;
+	    case TTY_STATE_G0:
+	    case TTY_STATE_G1:
+		i = (s->state == TTY_STATE_G1) ? G0:G1;
+		dprintf("TTY_STATE_G%01d %d\n", i, ch);
+		switch(ch) {
+		    case '0':
+			s->t_attrib.codec[i] = MAPGRAF;
+		    break;
+		    case 'B':
+			s->t_attrib.codec[i] = MAPLAT1;
+		    break;
+		    case 'U':
+			s->t_attrib.codec[i] = MAPIBMPC;
+		    break;
+		    case 'K':
+			s->t_attrib.codec[i] = MAPUSER;
+		    break;
+		}
+		s->state = TTY_STATE_NORM;
+	    break;
+
+	    case TTY_STATE_PERCENT:
+		s->state = TTY_STATE_NORM;
+		dprintf("TTY_STATE_PERCENT %d\n", ch);
+		switch (ch) {
+		    case '@':
+			s->t_attrib.utf = 0;
+			break;
+		    case 'G':
+		    case '8': 
+			s->t_attrib.utf = 1;
+			break;
+		}
+		break;
         }
     }
 }
@@ -1832,8 +1900,7 @@ static void kbd_send_chars(void *opaque)
 }
 #endif
 
-static 
-int cmputfents(const void *p1, const void *p2)
+static int cmputfents(const void *p1, const void *p2)
 {
     short a,b;
 
@@ -1843,58 +1910,20 @@ int cmputfents(const void *p1, const void *p2)
     return a-b;
 }
 
-static void parse_unicode_map( char* filename )
+static void prepare_console_maps()
 {
-    FILE* f;
-    int ch, n[2], number, position, entry;
+    unsigned int i,j;
 
-    memset(utf8map, 0, sizeof(int)*256);
-
-    f=fopen(filename, "rb");
-    if (f==NULL)
-	return;
-
-    /* the file structure is simple: 
-	X\tY.*
-	.....
-	we only care about X and Y
-    */
-
-    n[0]=n[1]=position=number=entry=0;
-
-    do{
-	ch=fgetc(f);
-	if (ch==EOF || ch=='\n' || ch=='\r') {
-		utf8map[entry++]=(n[1]&0xffff)|(n[0]<<16);
-		dprintf("utf8 map: %x %x\n", n[0], n[1] );
-		n[0]=n[1]=position=number=0;
+    for(i=0;i<3;i++)
+	for(j=0;j<256;j++) {
+ 	    consmap[i][j] |= j<<16;
 	}
-	else {
-		if (ch=='\t') {
-		    number++;
-		    position=0;
-		}
-		else {
-		    if (number<2) {
-			if (ch-'0' > 9 ) {
-			    ch=tolower(ch);
-			    ch=ch-'a'+10;
-			}
-			else {
-			    ch=ch-'0';
-			}
-			n[number]=(n[number]*16)+ch;
-		    }
-		}
-		
-	}
-    }while(ch!=EOF && entry<256);
-
     /*
-	now we have to sort it, in order to prepare for binary search 
+	now we have to sort it, in order to prepare for binary search
     */
-    qsort( utf8map, 256, sizeof(int), cmputfents );
 
+    for(i=0;i<3;i++)
+	qsort( consmap[i], 256, sizeof(unsigned int), cmputfents );
 }
 
 void dump_console_to_file(CharDriverState *chr, char *fn)
@@ -2043,7 +2072,9 @@ CharDriverState *text_console_init(DisplayState *ds)
     TextConsole *s;
     static int color_inited;
 
-    parse_unicode_map("/usr/share/xen/qemu/cp437_to_uni.trans");
+/* init unicode maps */
+//    parse_unicode_map("/usr/share/xen/qemu/cp437_to_uni.trans");
+    prepare_console_maps();
 
     chr = qemu_mallocz(sizeof(CharDriverState));
     if (!chr)
@@ -2092,8 +2123,11 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->t_attrib_default.fgcol = COLOR_WHITE;
     s->t_attrib_default.bgcol = COLOR_BLACK;
     s->t_attrib_default.used = 0;
+    /* by default we love utf */
+    s->t_attrib_default.utf = 1;
+    s->t_attrib_default.codec[0] = MAPLAT1;
+    s->t_attrib_default.codec[1] = MAPGRAF;
     s->t_attrib_default.font = G0;
-    s->t_attrib_default.codec = 1;
     s->c_attrib_default.highlit = 0;
     s->unicodeIndex = 0;
     s->unicodeLength = 0;

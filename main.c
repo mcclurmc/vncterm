@@ -490,7 +490,6 @@ main(int argc, char **argv, char **envp)
 		err(1, "malloc");
 
 	for (nenv = 0; envp[nenv]; nenv++) {
-		/* enforce specific TERM type */
 		if (!strncmp(envp[nenv], "TERM=", 5)) 
 			newenvp[nenv] = "TERM=linux";
 		else
