@@ -357,6 +357,7 @@ main(int argc, char **argv, char **envp)
     int restart = 0;
     int restart_needed = 1;
     int cmd_mode = 0;
+    int exit_when_all_disconnect = 0;
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -523,6 +524,9 @@ main(int argc, char **argv, char **envp)
 	    restart_needed = 0;
 	}
 
+	if (exit_when_all_disconnect && !nrof_clients_connected(vncterm->console))
+	    exit(0);
+
         if (dump_cells) {
 	    dump_cells = 0;
 	    dump_console_to_file(vncterm->console, "/tmp/console.cells");
@@ -639,7 +643,7 @@ main(int argc, char **argv, char **envp)
 			if (restart)
 			    restart_needed = 1;
 			else if (exit_on_eof)
-			    exit(0);
+			    exit_when_all_disconnect=1;
 		    }
 		    ioh->enabled = 0;
 		    handlers_updated = 1;

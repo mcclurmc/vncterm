@@ -2066,6 +2066,13 @@ void set_color_table(DisplayState *ds)
     }
 }
 
+unsigned char nrof_clients_connected(CharDriverState *chr)
+{
+    TextConsole *s = chr->opaque;
+
+    return s->ds->dpy_clients_connected(s->ds);
+}
+
 CharDriverState *text_console_init(DisplayState *ds)
 {
     CharDriverState *chr;

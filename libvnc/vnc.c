@@ -304,6 +304,13 @@ static void vnc_dpy_update(DisplayState *ds, int x, int y, int w, int h)
     set_bits_in_row(vs, vs->dirty_row, x, y, w, h);
 }
 
+static unsigned char vnc_dpy_clients_connected(DisplayState *ds)
+{
+    VncState *vs = ds->opaque;
+
+    return vs->nrofclients;
+}
+
 static void vnc_framebuffer_update(struct VncClientState *vcs, int x, int y,
 				   int w, int h, int32_t encoding)
 {
@@ -1838,6 +1845,7 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
     vs->ds->dpy_refresh = vnc_dpy_refresh;
     vs->ds->dpy_set_server_text = vnc_set_server_text;
     vs->ds->dpy_bell = vnc_send_bell;
+    vs->ds->dpy_clients_connected = vnc_dpy_clients_connected;
 
     vnc_dpy_resize(vs->ds, 640, 400);
 
