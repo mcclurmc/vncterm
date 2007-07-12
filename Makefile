@@ -7,7 +7,7 @@ LIBS := libvnc/libvnc.a
 
 CFLAGS  = -I$(shell pwd)/include
 # _GNU_SOURCE for asprintf.
-CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE
+CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE 
 CFLAGS += -Wall -Werror -g -O1
 
 ifeq ($(shell uname),Linux)
@@ -20,10 +20,8 @@ else
 CFLAGS += -DNXENSTORE
 endif
 
-LDLIBS += -pg
-
 # Get gcc to generate the dependencies for us.
-CFLAGS   += -Wp,-MD,$(@D)/.$(@F).d -pg
+CFLAGS   += -Wp,-MD,$(@D)/.$(@F).d
 
 SUBDIRS  = $(filter-out ./,$(dir $(OBJS) $(LIBS)))
 DEPS     = .*.d
