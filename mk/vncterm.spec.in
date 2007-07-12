@@ -23,7 +23,6 @@ mkdir -p ${RPM_BUILD_ROOT}%{_libdir}/xen/bin
 cp vncterm ${RPM_BUILD_ROOT}%{_libdir}/xen/bin/vncterm
 cp dom0term/dom0term.sh ${RPM_BUILD_ROOT}%{_libdir}/xen/bin/dom0term.sh
 mkdir -p ${RPM_BUILD_ROOT}%{_datadir}/xen/qemu
-cp cp437_to_uni.trans ${RPM_BUILD_ROOT}%{_datadir}/xen/qemu/cp437_to_uni.trans
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -33,6 +32,5 @@ rm -rf $RPM_BUILD_ROOT
 %doc
 %{_libdir}/xen/bin/vncterm
 %{_libdir}/xen/bin/dom0term.sh
-%{_datadir}/xen/qemu/cp437_to_uni.trans
 
 %changelog
