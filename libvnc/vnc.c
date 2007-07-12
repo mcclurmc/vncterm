@@ -147,6 +147,7 @@ struct VncState
 
     DisplayState *ds;
     struct VncClientState *vcs[MAX_CLIENTS];
+    unsigned char nrofclients;
 
     uint64_t *dirty_row;	/* screen regions which are possibly dirty */
     int dirty_pixel_shift;
@@ -832,6 +833,7 @@ static int vnc_client_io_error(struct VncClientState *vcs, int ret,
     buffer_reset(&vcs->output);
     vnc_reset_pending_messages(&vcs->vpm);
     vcs->pix_bpp = 0;
+    vcs->vs->nrofclients--;
     return 0;
 }
 
@@ -1753,17 +1755,20 @@ static void vnc_listen_read(void *opaque)
     if (new_sock == -1)
 	return;
 
+    if (vs->nrofclients == MAX_CLIENTS)
+	goto fail;
+
     for (i = 0; i < MAX_CLIENTS; i++)
 	if (!VCS_INUSE(vs->vcs[i]))
 	    break;
-    if (i == MAX_CLIENTS)
-	goto fail;
 
     if (vs->vcs[i] == NULL) {
 	vs->vcs[i] = calloc(1, sizeof(struct VncClientState));
 	if (vs->vcs[i] == NULL)
 	    goto fail;
     }
+
+    vs->nrofclients++;
 
     vcs = vs->vcs[i];
     vcs->vs = vs;
