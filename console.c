@@ -1275,6 +1275,36 @@ static void reset_params(TextConsole *s)
     s->has_qmark = 0;
 }
 
+static void console_dch(TextConsole *s)
+{
+    TextCell *c, *d;
+    int y1, x, a;
+
+    y1 = cy(s->y);
+    c = &s->cells[y1 * s->width + s->x];
+    if (s->esc_params[0] == 0)
+	s->esc_params[0] = 1;
+    a = s->nb_esc_params ? s->esc_params[0] : 1;
+    d = &s->cells[y1 * s->width + s->x + a];
+    for(x = s->x; x < s->width - a; x++) {
+	c->ch = d->ch;
+	c->t_attrib = d->t_attrib;
+	c++;
+	d++;
+	update_xy(s, x, s->y);
+    }
+    /* for the last char on console, check wether it is the last line */
+    if ( s->y == s->height-1 ) {
+	c->ch = ' ';
+	c->t_attrib = s->t_attrib_default;
+    }
+    else {
+	c->ch = d->ch;
+	c->t_attrib = d->t_attrib;
+    }
+    update_xy(s, x, s->y);
+}
+
 static void console_putchar(TextConsole *s, int ch)
 {
     TextCell *c, *d;
@@ -1615,20 +1645,8 @@ static void console_putchar(TextConsole *s, int ch)
 		scroll_up(s, s->y, s->bot_marg, s->esc_params[0]);
 		break;
 	    case 'P':		/* DCH */
-		y1 = cy(s->y);
-		c = &s->cells[y1 * s->width + s->x];
-		if (s->esc_params[0] == 0)
-		    s->esc_params[0] = 1;
-		a = s->nb_esc_params ? s->esc_params[0] : 1;
-		d = &s->cells[y1 * s->width + s->x + a];
-                for(x = s->x; x <= s->width - a; x++) {
-                    c->ch = d->ch;
-                    c->t_attrib = d->t_attrib;
-                    c++;
-		    d++;
-                    update_xy(s, x, s->y);
-                }
-                break;
+		console_dch(s);
+		break;
             case 'X':
 		if (s->nb_esc_params == 0)
 		    s->esc_params[0] = 1;
