@@ -527,7 +527,7 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
         ds->linesize * y * FONT_HEIGHT + bpp * x * FONT_WIDTH;
     linesize = ds->linesize;
 
-dprintf("vga_putcharxy: %d font:%d\n", ch, t_attrib->font );
+//dprintf("vga_putcharxy: %d font:%d\n", ch, t_attrib->font );
     switch( t_attrib->font ) {
 	case G0:
 	    font_ptr = vgafont16 + FONT_HEIGHT * ch;
@@ -1459,6 +1459,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    set_cursor(s, 0, 0);
 	    s->nb_esc_params = 0;
             s->t_attrib = s->t_attrib_default;
+	    zero_selection(s,1);
 	    clear(s, s->y, s->x, s->height - 1, s->width);
 	    break;
 	case 'D': /* linefeed */
@@ -1519,7 +1520,7 @@ static void console_putchar(TextConsole *s, int ch)
         break;
     case TTY_STATE_CSI: /* handle escape sequence parameters */
 	if (handle_params(s, ch)) {
-           s->state = TTY_STATE_NORM;
+	    s->state = TTY_STATE_NORM;
             switch(ch) {
 	    case '@': /* ins del characters */
 		y1 = cy(s->y);
@@ -1537,6 +1538,7 @@ static void console_putchar(TextConsole *s, int ch)
                 }
                 break;
 	    case 'A': /* cursor up */
+		dprintf("cursor up\n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1545,6 +1547,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    set_cursor(s, s->top_marg, s->x);
 		break;
 	    case 'B': /* cursor down */
+		dprintf("cursor down\n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1554,6 +1557,7 @@ static void console_putchar(TextConsole *s, int ch)
 		break;
 	    case 'a':
             case 'C': /* cursor right */
+		dprintf("cursor right\n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1562,6 +1566,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    set_cursor(s, s->y, s->width - 1);
                 break;
             case 'D': /* cursor left */
+		dprintf("cursor left\n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1570,6 +1575,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    set_cursor(s, s->y, 0);
                 break;
 	    case 'E': /* cursor down and to first column */
+		dprintf("cursor down and to first column \n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1578,6 +1584,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    set_cursor(s, s->bot_marg, 0);
 		break;
 	    case 'F': /* cursor up and to first column */
+		dprintf("cursor up and to first column \n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
@@ -1648,7 +1655,7 @@ static void console_putchar(TextConsole *s, int ch)
 		console_dch(s);
 		break;
             case 'X':
-		if (s->nb_esc_params == 0)
+		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		clear(s, s->y, s->x, s->y, s->x + s->esc_params[0]);
                 break;
@@ -1817,7 +1824,6 @@ static void console_putchar(TextConsole *s, int ch)
 	    break;
 
 	    case TTY_STATE_PERCENT:
-		s->state = TTY_STATE_NORM;
 		dprintf("TTY_STATE_PERCENT %d\n", ch);
 		switch (ch) {
 		    case '@':
@@ -1828,6 +1834,7 @@ static void console_putchar(TextConsole *s, int ch)
 			s->t_attrib.utf = 1;
 			break;
 		}
+		s->state = TTY_STATE_NORM;
 		break;
         }
     }
@@ -2017,8 +2024,12 @@ void kbd_put_keysym(int keysym)
 	default:
 	    *q++ = keysym;
         }
+
 	for (c = 0; c < q - buf; c++)
 	    dprintf("fchar %c %x\n", buf[c] > 0x1f ? buf[c] : ' ', buf[c]);
+
+	dprintf("write_or_chunk(%d, %d)\n", s->input_stream.fd, q-buf);
+
 	if (s->input_stream.fd != -1)
 	    write_or_chunk(&s->input_stream, buf, q - buf);
         break;
