@@ -1802,7 +1802,8 @@ static void vnc_listen_read(void *opaque)
 }
 
 int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
-		     int find_unused, char *title, char *keyboard_layout)
+		     int find_unused, char *title, char *keyboard_layout,
+		     unsigned int width, unsigned int height)
 {
     struct sockaddr_in *iaddr = NULL;
     int reuse_addr, ret;
@@ -1848,7 +1849,7 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
     vs->ds->dpy_bell = vnc_send_bell;
     vs->ds->dpy_clients_connected = vnc_dpy_clients_connected;
 
-    vnc_dpy_resize(vs->ds, 640, 400);
+    vnc_dpy_resize(vs->ds, width, height);
 
 #ifndef _WIN32
     if (addr->sa_family == AF_UNIX) {

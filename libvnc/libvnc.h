@@ -46,7 +46,8 @@ typedef struct DisplayState DisplayState;
 
 struct sockaddr;
 int vnc_display_init(DisplayState *ds, struct sockaddr *sa,
-		     int find_unused, char *title, char *keyboard_layout);
+		     int find_unused, char *title, char *keyboard_layout, 
+		     unsigned int width, unsigned int height);
 
 
 /* keyboard/mouse support */

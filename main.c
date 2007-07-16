@@ -38,6 +38,12 @@ static struct xs_handle *xs;
 #include "console.h"
 #include "libvnc/libvnc.h"
 
+#define LINES	24
+#define COLS	80
+
+#define FONTH	16
+#define FONTW	8
+
 char vncpasswd[64];
 unsigned char challenge[AUTHCHALLENGESIZE];
 
@@ -215,10 +221,10 @@ run_process(CharDriverState *console, const char *filename,
 
     p->console = console;
 
-    ws.ws_row = 24;
-    ws.ws_col = 80;
-    ws.ws_xpixel = ws.ws_col * 8;
-    ws.ws_ypixel = ws.ws_row * 16;
+    ws.ws_row = LINES;
+    ws.ws_col = COLS;
+    ws.ws_xpixel = ws.ws_col * FONTW;
+    ws.ws_ypixel = ws.ws_row * FONTH;
 
     p->pid = forkpty(&p->fd, NULL, NULL, &ws);
     if (p->pid < 0)
@@ -424,7 +430,8 @@ main(int argc, char **argv, char **envp)
     sa.sin_port = htons(0);
     ((struct sockaddr *)&sa)->sa_family = AF_INET;
 
-    display = vnc_display_init(ds, (struct sockaddr *)&sa, 1, title, NULL);
+    display = vnc_display_init(ds, (struct sockaddr *)&sa, 1, title, NULL, 
+		COLS * FONTW, LINES * FONTH );
     vncterm->console = text_console_init(ds);
 
 #if 0
