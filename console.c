@@ -31,7 +31,7 @@
 #include "debug.h"
 #include "consmap.h"
 
-#define DEFAULT_BACKSCROLL 512
+#define DEFAULT_BACKSCROLL (512)
 #define MAX_CONSOLES 12
 
 #define QEMU_RGBA(r, g, b, a) (((a) << 24) | ((r) << 16) | ((g) << 8) | (b))
@@ -66,7 +66,6 @@ typedef struct TextCell {
     uint8_t ch;
     TextAttributes t_attrib;
     CellAttributes c_attrib;
-
 } TextCell;
 
 #define MAX_ESC_PARAMS 3
@@ -149,29 +148,60 @@ struct TextConsole {
     DisplayState *ds;
     /* Graphic console state.  */
 
+    /* width and height in pixels of "frame"/display */
     int g_width, g_height;
-    int width;
-    int height;
+
+    /* width and height in char cells of "frame"/display*/
+    int width, height;
+
+    /* height, including history currently used,
+       This should go beyond total_height-heigth */
+    int backscroll;
+
+    /* maximum possible height (backscroll)*/
     int total_height;
-    int backscroll_height;
+
+    /* current cursor position */
     int x, y;
+
+    /* saved cursor position */
     int saved_x, saved_y;
-    int cursor_visible;
-    int y_displayed;
+
+    /* boolean, selfexplanatory */
+    char cursor_visible;
+
+    /* screen's 1st line (the top line)*/
     int y_base;
-    int autowrap;
-    int wrapped;
-    int origin_mode;
+
+    /* this is ofset that is substracted from y_base 
+       and points to currently displayed screen */
+    int y_scroll;
+
+    /* scroll region */
+    int sr_top, sr_bottom;
+
+    /* self explanatory */
+    char autowrap;
+    char wrapped;
     int insert_mode;
     int cursorkey_mode;
-    int ansi_mode;
-    int top_marg;
-    int bot_marg;
-    TextAttributes t_attrib_default; /* default text attributes */
-    TextAttributes t_attrib; /* currently active text attributes */
-    TextAttributes saved_t_attrib; /* currently saved text attributes */
+
+    /* orgin mode, not used currently - only set */
+    char origin_mode;
+
+    /* default text attributes */
+    TextAttributes t_attrib_default;
+
+    /* currently active text attributes */
+    TextAttributes t_attrib;
+    /* currently saved text attributes */
+    TextAttributes saved_t_attrib;
+
+    /* the actual content */
     TextCell *cells;
-    CellAttributes c_attrib_default; /* default text attributes */
+
+    /* default text attributes */
+    CellAttributes c_attrib_default;
 
     enum TTYState state;
     int esc_params[MAX_ESC_PARAMS];
@@ -181,14 +211,14 @@ struct TextConsole {
 
     struct chunked_stream input_stream;
 
-/* first one for current selection, second one for old */
+    /* first one for current selection, second one for old */
     struct selection selections[2];
     int selecting;
 
-    int mouse_x;
-    int mouse_y;
+    /* mouse position */
+    int mouse_x, mouse_y;
 
-/* unicode bits */
+    /* unicode bits (state of unicode input) */
     int unicodeIndex;
     int unicodeData[4];
     int unicodeLength;
@@ -224,7 +254,7 @@ static int nb_consoles = 0;
 	    (s)->v = (s)->width - 1;	\
     }
 
-#define cy(y) ((s->y_displayed + (y)) % s->total_height)
+#define clip_xy(s,x,y) {clip_x(s,x);clip_y(s,y);}
 
 /* convert a RGBA color to a color index usable in graphic primitives */
 static unsigned int vga_get_color(DisplayState *ds, unsigned int rgba)
@@ -498,6 +528,29 @@ static void console_print_text_attributes(TextAttributes *t_attrib, char ch)
     dprintf(" fg: %d bg: %d ch:'%2X' '%c'\n", t_attrib->fgcol, t_attrib->bgcol, ch, ch);
 }
 
+/* does a framebuffer scrolling by N lines */
+static void vga_scroll(TextConsole *s, int n)
+{
+    int h;
+
+    h = s->g_height-(abs(n)*FONT_HEIGHT);
+
+    if (n>0) {	// down
+	vga_bitblt(s->ds, 0, n*FONT_HEIGHT, 0, 0, s->g_width, h );
+//	s->ds->dpy_copy_rect(s->ds, 0, n*FONT_HEIGHT, 0, 0, s->g_width, h );
+
+	vga_fill_rect(s->ds, 0, h, s->g_width, s->g_height-h, s->t_attrib.bgcol);
+//	s->ds->dpy_update(s->ds, 0, h, s->g_width, s->g_height-h);
+    }
+    else {	// up
+	vga_bitblt(s->ds, 0, 0, 0, -n*FONT_HEIGHT, s->g_width, h );
+//	s->ds->dpy_copy_rect(s->ds, 0, 0, 0, -n*FONT_HEIGHT, s->g_width, h );
+
+	vga_fill_rect(s->ds, 0, 0, s->g_width, s->g_height-h, s->t_attrib.bgcol);
+//	s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height-h);
+    }
+}
+
 static void vga_putcharxy(TextConsole *s, int x, int y, int ch, 
                           TextAttributes *t_attrib, CellAttributes *c_attrib)
 {
@@ -527,7 +580,7 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
         ds->linesize * y * FONT_HEIGHT + bpp * x * FONT_WIDTH;
     linesize = ds->linesize;
 
-//dprintf("vga_putcharxy: %d font:%d\n", ch, t_attrib->font );
+    dprintf("vga_putcharxy: %d font:%d\n", ch, t_attrib->font );
     switch( t_attrib->font ) {
 	case G0:
 	    font_ptr = vgafont16 + FONT_HEIGHT * ch;
@@ -596,9 +649,9 @@ static void text_console_resize(TextConsole *s)
     last_width = s->width;
     s->width = s->g_width / FONT_WIDTH;
     s->height = s->g_height / FONT_HEIGHT;
-    s->bot_marg = s->height - 1;
-    if (s->top_marg >= s->bot_marg)
-	s->top_marg = s->bot_marg;
+
+    s->sr_top = 0;
+    s->sr_bottom = s->height - 1;
 
     w1 = last_width;
     if (s->width < w1)
@@ -624,23 +677,74 @@ static void text_console_resize(TextConsole *s)
     s->cells = cells;
 }
 
+/*
+  where virtual lines have to be used in
+  loop, this macro should be used instead of y++
+*/
+#define next_line(A,Y) ((Y+1)%s->total_height)
+
+/* projection onto 'real' screen */
+static int virtual_to_screen(TextConsole *s, int y) 
+{
+    y -= s->y_base-s->y_scroll;
+
+    if (y<0)
+	y += s->total_height;
+
+    return y;
+}
+
+/*
+  this should be used whenever we want to access data from
+  TextCells that reflect currently displayed screen frame 
+*/
+static int screen_to_virtual(TextConsole *s, int y)
+{
+    y += s->y_base-s->y_scroll;
+    y %= s->total_height;
+
+    if (y<0)
+	y += s->total_height;
+
+    return y;
+}
+
+/*
+  paints character under X,Y - as visible on screen
+  also sends VNC update for the character
+*/
 static void update_xy(TextConsole *s, int x, int y)
 {
     TextCell *c;
-    int y1, y2;
 
     if (s == active_console) {
-        y1 = cy(y);
-        y2 = y1 - s->y_displayed;
-        if (y2 < 0)
-            y2 += s->total_height;
-        if (y2 < s->height) {
-            c = &s->cells[y1 * s->width + x];
-            vga_putcharxy(s, x, y2, c->ch, 
+
+        if (y < s->height) {
+            c = &s->cells[screen_to_virtual(s,y) * s->width + x];
+            vga_putcharxy(s, x, y, c->ch, 
                           &(c->t_attrib), &(c->c_attrib));
-            s->ds->dpy_update(s->ds, x * FONT_WIDTH, y2 * FONT_HEIGHT, 
+            s->ds->dpy_update(s->ds, x * FONT_WIDTH, y * FONT_HEIGHT, 
 			      FONT_WIDTH, FONT_HEIGHT);
         }
+    }
+}
+/*
+  update whole rectangle of characters, as visible on screen
+  since this relies on update_x,y() - it also sends out VNC update
+*/
+static void update_rect(TextConsole *s, int x, int y, int w, int h)
+{
+    int i,j;
+    for(i=0;i<h;i++) {
+        if (i+y > s->height)
+	    break;
+	for(j=0;j<w;j++) {
+	    if (j+x > s->width) {
+		w=j;
+		break;
+	    }
+	    update_xy(s, x+j, y+i);
+	}
     }
 }
 
@@ -653,63 +757,72 @@ static void set_cursor(TextConsole *s, int y, int x)
 
 static void console_show_cursor(TextConsole *s, int show)
 {
-    // TextAttributes t_attrib;
     TextCell *c;
-    int y, y1;
 
     s->cursor_visible = show;
     if (s == active_console && s->x < s->width) {
-        y1 = cy(s->y);
-        y = y1 - s->y_displayed;
-        if (y < 0)
-            y += s->total_height;
-        if (y < s->height) {
-            c = &s->cells[y1 * s->width + s->x];
-#if 0
-            if (show) {
-                t_attrib = s->t_attrib_default;
-                t_attrib.highlit = !(t_attrib.highlit); /* invert fg and bg */
-                vga_putcharxy(s, s->x, y, c->ch, &t_attrib);
-            } else {
-#endif
-                vga_putcharxy(s, s->x, y, c->ch, &(c->t_attrib), &(c->c_attrib));
-//            }
-            s->ds->dpy_update(s->ds, s->x * FONT_WIDTH, y * FONT_HEIGHT, 
-			      FONT_WIDTH, FONT_HEIGHT);
+        if (s->y < s->height) {
+            c = &s->cells[screen_to_virtual(s, s->y) * s->width + s->x];
+	    if (s->y_scroll)
+		return;
+            vga_putcharxy(s, s->x, s->y, c->ch, &(c->t_attrib), &(c->c_attrib));
+            s->ds->dpy_update(s->ds, s->x * FONT_WIDTH, s->y * FONT_HEIGHT, 
+                                            FONT_WIDTH, FONT_HEIGHT);
         }
     }
 }
 
+/* calculate 'dinstance' (number of lines) between two given
+   lines on virtual console
+*/
+static int line_dist(TextConsole *s, int yf, int yt)
+{
+    if (yf <= yt )
+	return yt-yf;
+
+    yt += s->total_height;
+
+    return yt-yf; 
+}
+
+#define swap_coords(TY, FY, TX, FX) {int tmp; tmp = FX; FX = TX; TX = tmp; \
+					tmp = FY;FY = TY;TY = tmp;}
+
+/* returns the selection as null terminated char 
+   takes coordinates in virtual space already
+*/
 static char *
 get_text(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
 {
     TextCell *c;
-    TextAttributes t_attrib;
-    int end;
     char *buffer;
     int bufidx = 0;
 
-    if (to_y < from_y || (to_y == from_y && to_x < from_x)) {
-	end = from_y * s->width + from_x;
-	from_x = to_x;
-	from_y = to_y;
-    } else
-	end = to_y * s->width + to_x;
-    dprintf("get_text from %d/%d to %d/%d size %d\n", from_y, from_x, to_y,
-	   to_x, (from_y * s->width + from_x) - end);
-    buffer = malloc(end - (from_y * s->width + from_x) + s->height + 1);
+    int sc_fy, sc_ty;
+
+    sc_fy = virtual_to_screen(s, from_y);
+    sc_ty = virtual_to_screen(s, to_y);
+
+    /* swap if necessary */
+    if (sc_ty < sc_fy || (sc_ty == sc_fy && to_x < from_x)) {
+	swap_coords(to_y, from_y, to_x, from_x);
+	sc_fy = sc_ty;
+    }
+
+    dprintf("get_text from %d/%d to %d/%d \n", from_y, from_x, to_y, to_x);
+
+    buffer = malloc((line_dist(s, from_y, to_y)+1)*s->width);
     if (buffer == NULL)
 	return NULL;
-    c = &s->cells[cy(from_y) * s->width + from_x];
-    while (from_y * s->width + from_x < end) {
-	t_attrib = c->t_attrib;
-	if (t_attrib.used)
+
+    while(from_y != to_y || from_x != to_x) {
+	c = &s->cells[from_y*s->width + from_x];
+	if (c->t_attrib.used)
 	    buffer[bufidx++] = c->ch;
-	c++;
 	from_x++;
 	if (from_x >= s->width) {
 	    from_x = 0;
-	    from_y++;
+	    from_y = next_line(s, from_y);
 	    buffer[bufidx++] = '\n';
 	}
     }
@@ -717,37 +830,56 @@ get_text(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
     return buffer;
 }
 
+/*
+    macros operating on selection structure 
+*/
+#define zero_selection(A,B) {memset( &A->selections[B],0,sizeof(struct selection) );}
+#define is_selection_zero(A,B) ((A->selections[B].startx | \
+				A->selections[B].starty | \
+				A->selections[B].endx | \
+				A->selections[B].endy ) == 0 )
+#define update_selection(A,B,Y) {if (!is_selection_zero(A,B)){A->selections[B].starty+=Y;A->selections[B].endy+=Y;}}
+
+/*
+    highlight the selected text visualy
+    this operates on 'virtual' coordinates
+*/
 static void
-highlight(TextConsole *s, int from_y, int from_x, int to_y, int to_x,
-	  int highlight, int used, int persist)
+highlight(TextConsole *s, int from_y, int from_x, int to_y, int to_x, int highlight)
 {
     TextCell *c;
-    CellAttributes c_attrib;
-    int end;
+    int sc_fy, sc_ty;
 
-    if (to_y < from_y || (to_y == from_y && to_x < from_x)) {
-	end = from_y * s->width + from_x;
-	from_x = to_x;
-	from_y = to_y;
-    } else
-	end = to_y * s->width + to_x;
+    if (from_y == to_y && to_x == from_x)
+	return;
 
-    c = &s->cells[cy(from_y) * s->width + from_x];
-    while (from_y * s->width + from_x < end) {
-	if ((!used || c->t_attrib.used) && persist)
-	    c->c_attrib.highlit = !(c->c_attrib.highlit);
-	c_attrib = c->c_attrib;
-	if (/* (from_x == s->x && from_y == s->y) || */
-	    (highlight && (!used || c->t_attrib.used)))
-	    c_attrib.highlit = !(c_attrib.highlit);
-	vga_putcharxy(s, from_x, from_y, c->ch, &(c->t_attrib), &c_attrib);
-	s->ds->dpy_update(s->ds, from_x * FONT_WIDTH, from_y * FONT_HEIGHT,
-			  FONT_WIDTH, FONT_HEIGHT);
+    sc_fy = virtual_to_screen(s, from_y);
+    sc_ty = virtual_to_screen(s, to_y);
+
+    /* swap if necessary */
+    if (sc_ty < sc_fy || (sc_ty == sc_fy && to_x < from_x)) {
+	swap_coords(to_y, from_y, to_x, from_x);
+	sc_fy = sc_ty;
+    }
+
+    dprintf("highlight from %d/%d to %d/%d - %d \n", from_y, from_x, to_y, to_x, highlight);
+
+    while(from_y != to_y || from_x != to_x) {
+	c = &s->cells[from_y * s->width + from_x];
+	
+	if (c->c_attrib.highlit != highlight) {
+	    if (c->t_attrib.used) {
+		c->c_attrib.highlit = highlight;
+		update_xy(s, from_x, sc_fy);
+	    }
+	}
+
 	c++;
 	from_x++;
 	if (from_x >= s->width) {
 	    from_x = 0;
-	    from_y++;
+	    from_y = next_line(s, from_y);
+	    sc_fy = virtual_to_screen(s, from_y);
 	}
     }
 }
@@ -775,88 +907,198 @@ mouse_is_absolute(void *opaque)
 static void console_refresh(TextConsole *s)
 {
     TextCell *c;
-    int x, y, y1;
+    int x, y;
 
     if (s != active_console) 
         return;
 
-    vga_fill_rect(s->ds, 0, 0, s->ds->width, s->ds->height,
-                  color_table[0][COLOR_BLACK]);
-    y1 = s->y_displayed;
+    vga_fill_rect(s->ds, 0, 0, s->g_width, s->g_height, s->t_attrib.bgcol);
+
     for(y = 0; y < s->height; y++) {
-        c = &s->cells[y1 * s->width];
+        c = &s->cells[screen_to_virtual(s,y) * s->width];
         for(x = 0; x < s->width; x++) {
             vga_putcharxy(s, x, y, c->ch, &(c->t_attrib), &(c->c_attrib));
             c++;
         }
-        if (++y1 == s->total_height)
-            y1 = 0;
     }
     s->ds->dpy_update(s->ds, 0, 0, s->ds->width, s->ds->height);
     console_show_cursor(s, 1);
 }
 
-static void console_scroll(int ydelta)
-{
-    TextConsole *s;
-    int i, y1;
-
-    s = active_console;
-    if (!s || !s->text_console)
-        return;
-
-    if (ydelta > 0) {
-        for(i = 0; i < ydelta; i++) {
-            if (s->y_displayed == s->y_base)
-                break;
-            if (++s->y_displayed == s->total_height)
-                s->y_displayed = 0;
-        }
-    } else {
-        ydelta = -ydelta;
-        i = s->backscroll_height;
-        if (i > s->total_height - s->height)
-            i = s->total_height - s->height;
-        y1 = s->y_base - i;
-        if (y1 < 0)
-            y1 += s->total_height;
-        for(i = 0; i < ydelta; i++) {
-            if (s->y_displayed == y1)
-                break;
-            if (--s->y_displayed < 0)
-                s->y_displayed = s->total_height - 1;
-        }
-    }
-    console_refresh(s);
-}
-
-static void clear(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
+static void clear_line(TextConsole *s, int line, int from_x, int to_x)
 {
     TextCell *c;
-    int end;
+    int m_fy, i;
 
-    end = to_y * s->width + to_x;
-    c = &s->cells[cy(from_y) * s->width + from_x];
-    while (from_y * s->width + from_x < end) {
+    if (from_x >= to_x)
+	return;
+
+    m_fy = screen_to_virtual(s, line);
+
+    c = &s->cells[(m_fy * s->width)+from_x];
+    for(i=from_x;i<to_x && i<s->width;i++) {
+
+/* XXX: we could send update per character, and only if character has changed
+   most of the time, clearing a line from some point to width wastes quite few rects being sent out */
+
 	c->ch = ' ';
 	c->t_attrib = s->t_attrib_default;
 	c->t_attrib.fgcol = s->t_attrib.fgcol;
 	c->t_attrib.bgcol = s->t_attrib.bgcol;
-	update_xy(s, from_x, from_y);
 	c++;
-	from_x++;
-	if (from_x >= s->width) {
-	    from_x = 0;
-	    from_y++;
-	}
-    }
+   }
+
 }
 
-#define zero_selection(A,B) {memset( &A->selections[B],0,sizeof(struct selection) );}
-#define is_selection_zero(A,B) ((A->selections[B].startx | \
-				A->selections[B].starty | \
-				A->selections[B].endx | \
-				A->selections[B].endy ) == 0 )
+static void clear(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
+{
+    int i;
+    for( i=from_y;i<=to_y;i++ )
+	clear_line(s, i, from_x, to_x);
+}
+
+
+/* this just scrolls view */
+static void console_scroll(TextConsole *s, int ydelta)
+{
+    if (!s || !s->text_console)
+        return;
+
+    s->y_scroll += -ydelta;
+
+    if (s->y_scroll > s->backscroll) {
+	ydelta += (s->y_scroll - s->backscroll);
+	s->y_scroll = s->backscroll;
+    }
+
+    if (s->y_scroll < 0 ) {
+	ydelta += s->y_scroll;
+	s->y_scroll = 0;
+    }
+
+    if (ydelta == 0)
+	return;
+
+    if (s->y_scroll)
+	console_show_cursor(s, 0);
+
+    if (abs(ydelta) >= s->height)
+	s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
+    else {
+
+	vga_scroll(s, ydelta);
+	
+	if (ydelta>0)
+	    update_rect(s, 0, s->height-ydelta, s->width, ydelta );
+	else
+	    update_rect(s, 0, 0, s->width, -ydelta );
+    }
+
+    if (!s->y_scroll)
+	console_show_cursor(s, 1);
+
+s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
+}
+
+static void scroll_text_cells(TextConsole* s, int f, int t, int by)
+{
+    TextCell* fc, *tc;
+    int m_fy, m_ty, direction;
+
+    direction = by/abs(by);
+    by = abs(by);
+
+    while(by--) {
+	m_fy = screen_to_virtual(s, f);
+	m_ty = screen_to_virtual(s, t);
+
+	fc = &s->cells[(m_fy * s->width)];
+	tc = &s->cells[(m_ty * s->width)];
+
+	memmove(tc, fc, s->width*sizeof(TextCell));
+
+	t += direction;
+	f += direction;
+    };
+}
+
+static void scroll_to_base(TextConsole*s) 
+{
+    if (s->y_scroll)
+	console_scroll(s, s->y_scroll);
+}
+
+static void scroll_down(TextConsole* s, int n)
+{
+    if (!s || !s->text_console)
+        return;
+
+    if ( s->sr_top != 0 || s->sr_bottom != s->height-1 ) {
+	/* region scroll */
+	scroll_text_cells(s, s->sr_bottom-n, s->sr_bottom, (s->sr_bottom-s->sr_top-n+1) * -1);
+	update_rect(s, 0, s->sr_top+n, s->width, s->sr_bottom-s->sr_top-n );
+	clear(s, s->sr_top, 0, s->sr_top+n-1, s->width);
+	return;
+    }
+
+    if (s->backscroll == 0)
+	return;
+
+    s->backscroll -= n;
+
+    if (s->backscroll < 0) {
+	n = n-(-s->backscroll);
+	s->backscroll = 0;
+    }
+
+    s->y_base = s->y_base-n;
+
+    if (s->y_base < 0)
+	s->y_base += s->total_height;
+
+    vga_scroll(s, -n);
+
+    clear(s, 0, 0, n, s->width );
+    s->ds->dpy_update(s->ds, 0, 0, s->g_width, n*FONT_HEIGHT );
+//    update_rect(s, 0, 0, s->width, n );
+
+    s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
+}
+
+/* scrolls down, moves whole view to the +n point */
+static void scroll_up(TextConsole* s, int n)
+{
+    if (!s || !s->text_console)
+        return;
+
+    if ( s->sr_top != 0 || s->sr_bottom != s->height-1 ) {
+	/* region scroll */
+	scroll_text_cells(s, s->sr_top+n, s->sr_top, s->sr_bottom-s->sr_top-n+1);
+	update_rect(s, 0, s->sr_top, s->width, s->sr_bottom-s->sr_top-n );
+	clear(s, s->sr_bottom-n+1, 0, s->sr_bottom, s->width);
+	return;
+    }
+
+    s->y_base = s->y_base+n;
+
+    if (s->y_base > s->total_height )
+	s->y_base -= s->total_height;
+
+    /* it also means that we can scroll back few more lines */
+    s->backscroll += n;
+
+    /* or not.. */
+    if (s->backscroll > (s->total_height-s->height) )
+	s->backscroll = s->total_height-s->height;
+
+    vga_scroll(s, n);
+
+    clear(s, s->height-n, 0, s->height, s->width);
+    s->ds->dpy_update(s->ds, 0, (s->height-n)*FONT_HEIGHT, s->g_width, n);
+//    update_rect(s, 0, s->height-n, s->width, n);
+    s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
+}
+
 void
 mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 {
@@ -869,22 +1111,22 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
     dy = dy * s->height / 0x7FFF;
 
 /* boundry check & fix */
-    if (dy>s->height-1)
-	dy=s->height-1;
+    if (dy >= s->height)
+	dy = s->height-1;
 
-    if (dx>s->width-1)
-	dx=s->width-1;
+    if (dx >= s->width)
+	dx = s->width-1;
 
-    if (dy<0) 
-	dy=0;
+    if (dy < 0) 
+	dy = 0;
 
-    if (dx<0)
-	dx=0;
+    if (dx < 0)
+	dx = 0;
 
     if (dz == -1)
-	console_scroll(-1);
+	console_scroll(s, -1);
     if (dz == 1)
-	console_scroll(1);
+	console_scroll(s, 1);
 
     s->mouse_x = dx;
     s->mouse_y = dy;
@@ -904,6 +1146,7 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	    /* set flag, copy current selection to old one */
 	    s->selecting = 0;
 	    memcpy( &s->selections[1], &s->selections[0], sizeof(struct selection) );
+	    zero_selection(s, 0);
 	}
     } else if (buttons_state == 1) {
         /* button pressed, no selection made - we have to initialze selection */
@@ -912,113 +1155,23 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
                we have to cancel it */
 	    if ( !is_selection_zero(s, 1) )
 		highlight(s, s->selections[1].starty, s->selections[1].startx,
-			   s->selections[1].endy, s->selections[1].endx, 0, 1, 1);
+			   s->selections[1].endy, s->selections[1].endx, 0);
 	    zero_selection(s, 1);
 	    /* initialize current coordinates */
 	    s->selections[0].startx = dx;
-	    s->selections[0].starty = dy;
+	    s->selections[0].starty = screen_to_virtual(s, dy);
 	    s->selections[0].endx = dx;
-	    s->selections[0].endy = dy;
+	    s->selections[0].endy = screen_to_virtual(s, dy);
 	    s->selecting=1;
 	    /* highlite current character */
-	    highlight(s, dy, dx, dy, dx, 0, 1, 1);
+	    highlight(s, screen_to_virtual(s, dy), dx, screen_to_virtual(s, dy), dx, 1);
 	}
 	else {
 	    /* in this case, we just have to update selection */
-	    highlight(s, s->selections[0].endy, s->selections[0].endx, dy, dx, 0, 1, 1);
+	    highlight(s, s->selections[0].endy, s->selections[0].endx, screen_to_virtual(s, dy), dx, 1);
 	    s->selections[0].endx = dx;
-	    s->selections[0].endy = dy;
+	    s->selections[0].endy = screen_to_virtual(s, dy);
 	}
-    }
-}
-
-static void scroll_up(TextConsole *s, int top, int bot, int n)
-{
-    int y1;
-
-    dprintf("scroll up %d->%d by %d\n", top, bot, n);
-    bot++;
-    if (top == 0 && bot == s->height) {
-	if (s->y_displayed == s->y_base) {
-	    s->y_displayed += n;
-	    if (s->y_displayed >= s->total_height)
-		s->y_displayed -= s->total_height;
-	}
-	s->y_base += n;
-	if (s->y_base >= s->total_height)
-	    s->y_base -= s->total_height;
-	if (s->backscroll_height < s->total_height) {
-	    s->backscroll_height += n;
-	    if (s->backscroll_height >= s->total_height)
-		s->backscroll_height = s->total_height;
-	}
-	dprintf("fake scroll disp %d base %d cells %p-%p\n", s->y_displayed,
-	       s->y_base, &s->cells[cy(top) * s->width], &s->cells[cy(bot) * s->width]);
-    } else {
-	for (y1 = top + n; y1 < bot; y1++)
-	    memmove(&s->cells[cy(y1 - n) * s->width],
-		    &s->cells[cy(y1) * s->width],
-		    s->width * sizeof(TextCell));
-    }
-    if (s == active_console && s->y_displayed == s->y_base)
-	vga_bitblt(s->ds, 0, (top + n) * FONT_HEIGHT,
-		   0, top * FONT_HEIGHT, 
-		   s->width * FONT_WIDTH, 
-		   (bot - top - n) * FONT_HEIGHT);
-    clear(s, bot - n, 0, bot - 1, s->width);
-    if (s == active_console && s->y_displayed == s->y_base) {
-	vga_fill_rect(s->ds, 0, (bot - n) * FONT_HEIGHT,
-		      s->width * FONT_WIDTH, n * FONT_HEIGHT, 
-		      color_table[0][s->t_attrib_default.bgcol]);
-	s->ds->dpy_update(s->ds, 0, top * FONT_HEIGHT, 
-			  s->width * FONT_WIDTH,
-			  bot * FONT_HEIGHT);
-    }
-}
-
-static void scroll_down(TextConsole *s, int top, int bot, int n)
-{
-    int y1;
-    int n_orig;
-
-    bot++;
-    n_orig = n;
- again:
-    if (top == 0 && bot == s->height && s->backscroll_height) {
-	if (s->backscroll_height < n)
-	    n = s->backscroll_height;
-	if (s->y_displayed == s->y_base) {
-	    s->y_displayed -= n;
-	    if (s->y_displayed < 0)
-		s->y_displayed = s->total_height - s->y_displayed;
-	}
-	s->y_base -= n;
-	if (s->y_base < 0)
-	    s->y_base = s->total_height - s->y_base;
-	s->backscroll_height -= n;
-    } else {
-	for (y1 = bot - 1; y1 >= top + n; y1--)
-	    memmove(&s->cells[cy(y1) * s->width],
-		    &s->cells[cy(y1 - n) * s->width],
-		    s->width * sizeof(TextCell));
-    }
-    if (s == active_console && s->y_displayed == s->y_base)
-	vga_bitblt(s->ds, 0, top * FONT_HEIGHT,
-		   0, (top + n) * FONT_HEIGHT, 
-		   s->width * FONT_WIDTH, 
-		   (bot - top - n) * FONT_HEIGHT);
-    clear(s, top, 0, top + n - 1, s->width);
-    if (s == active_console && s->y_displayed == s->y_base) {
-	vga_fill_rect(s->ds, 0, top * FONT_HEIGHT,
-		      s->width * FONT_WIDTH, n * FONT_HEIGHT, 
-		      color_table[0][s->t_attrib_default.bgcol]);
-	s->ds->dpy_update(s->ds, 0, top * FONT_HEIGHT, 
-			  s->width * FONT_WIDTH,
-			  bot * FONT_HEIGHT);
-    }
-    if (n != n_orig) {
-	n = n_orig - n;
-	goto again;
     }
 }
 
@@ -1039,10 +1192,12 @@ static void va_write(TextConsole *s, char *f, ...)
 
 static void console_put_lf(TextConsole *s)
 {
+    scroll_to_base(s);
+
     set_cursor(s, s->y + 1, s->x);
-    if (s->y > s->bot_marg) {
-        set_cursor(s, s->bot_marg, s->x);
-	scroll_up(s, s->top_marg, s->bot_marg, 1);
+    if (s->y > s->sr_bottom) {
+        set_cursor(s, s->sr_bottom, s->x);
+	scroll_up(s, 1);
     }
 }
 
@@ -1054,9 +1209,9 @@ static void console_put_cr(TextConsole *s)
 static void console_put_ri(TextConsole *s)
 {
     set_cursor(s, s->y - 1, 0);
-    if (s->y < s->top_marg) {
-	set_cursor(s, s->top_marg, s->x);;
-	scroll_down(s, s->top_marg, s->bot_marg, 1);
+    if (s->y < s->sr_top) {
+	set_cursor(s, s->sr_top, s->x);
+	scroll_down(s, 1);
     }
 }
 
@@ -1214,19 +1369,21 @@ static void do_putchar(TextConsole *s, int ch)
 {
     TextCell *c;
 
+    scroll_to_base(s);
+
     put_norm(ch);
     if (s->wrapped) {
 	set_cursor(s, s->y, 0);
 	console_put_lf(s);
     }
-    c = &s->cells[cy(s->y) * s->width + s->x];
+    c = &s->cells[screen_to_virtual(s, s->y) * s->width + s->x];
     c->ch = ch;
     c->t_attrib = s->t_attrib;
     c->t_attrib.used = 1;
     update_xy(s, s->x, s->y);
     if (s->x + 1 < s->width)
 	set_cursor(s, s->y, s->x + 1);
-    else 
+    else
 	if (s->autowrap)
 	    s->wrapped = 1;
 
@@ -1278,14 +1435,14 @@ static void reset_params(TextConsole *s)
 static void console_dch(TextConsole *s)
 {
     TextCell *c, *d;
-    int y1, x, a;
+    int x, a;
 
-    y1 = cy(s->y);
-    c = &s->cells[y1 * s->width + s->x];
     if (s->esc_params[0] == 0)
 	s->esc_params[0] = 1;
     a = s->nb_esc_params ? s->esc_params[0] : 1;
-    d = &s->cells[y1 * s->width + s->x + a];
+
+    c = &s->cells[screen_to_virtual(s,s->y) * s->width + s->x];
+    d = c+a;
     for(x = s->x; x < s->width - a; x++) {
 	c->ch = d->ch;
 	c->t_attrib = d->t_attrib;
@@ -1294,7 +1451,7 @@ static void console_dch(TextConsole *s)
 	update_xy(s, x, s->y);
     }
     /* for the last char on console, check wether it is the last line */
-    if ( s->y == s->height-1 ) {
+    if ( s->y == s->height ) {
 	c->ch = ' ';
 	c->t_attrib = s->t_attrib_default;
     }
@@ -1315,7 +1472,7 @@ static void console_putchar(TextConsole *s, int ch)
 
     switch(s->state) {
     case TTY_STATE_NORM:
-//	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
+	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
         switch(ch) {
         case BEL:
 	    dprintf("bell\n");
@@ -1374,7 +1531,7 @@ static void console_putchar(TextConsole *s, int ch)
 
         default:
 /* utf 8 bit */
-	    if (s->t_attrib.codec) {
+	    if (s->t_attrib.utf) {
 		if (s->unicodeIndex > 0) {
 		    if ((ch & 0xc0) != 0x80) {
 			dprintf("bogus unicode data %u\n", ch);
@@ -1460,7 +1617,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    s->nb_esc_params = 0;
             s->t_attrib = s->t_attrib_default;
 	    zero_selection(s,1);
-	    clear(s, s->y, s->x, s->height - 1, s->width);
+	    clear(s, s->y, s->x, s->height, s->width);
 	    break;
 	case 'D': /* linefeed */
 	    dprintf("ESC_LF\n");
@@ -1471,7 +1628,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    break;
 	case 'Z': /* DEC private identification */
 	    dprintf("DEC INDENT\n");
-	    va_write(s, "\033[?1;2C");
+	    va_write(s, "\033[?6c");
 	    break;
 	/* charset selection */
 	case '%':
@@ -1523,7 +1680,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    s->state = TTY_STATE_NORM;
             switch(ch) {
 	    case '@': /* ins del characters */
-		y1 = cy(s->y);
+		y1 = screen_to_virtual(s, s->y);
 		c = &s->cells[y1 * s->width + s->width - 1];
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
@@ -1543,8 +1700,8 @@ static void console_putchar(TextConsole *s, int ch)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		set_cursor(s, s->y - a, s->x);
-		if (s->y < s->top_marg)
-		    set_cursor(s, s->top_marg, s->x);
+		if (s->y < s->sr_top)
+		    set_cursor(s, s->sr_top, s->x);
 		break;
 	    case 'B': /* cursor down */
 		dprintf("cursor down\n");
@@ -1552,8 +1709,8 @@ static void console_putchar(TextConsole *s, int ch)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		set_cursor(s, s->y + a, s->x);
-		if (s->y > s->bot_marg)
-		    set_cursor(s, s->bot_marg, s->x);
+		if (s->y > s->sr_bottom)
+		    set_cursor(s, s->sr_bottom, s->x);
 		break;
 	    case 'a':
             case 'C': /* cursor right */
@@ -1580,8 +1737,8 @@ static void console_putchar(TextConsole *s, int ch)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		set_cursor(s, s->y + a, 0);
-		if (s->y > s->bot_marg)
-		    set_cursor(s, s->bot_marg, 0);
+		if (s->y > s->sr_bottom)
+		    set_cursor(s, s->sr_bottom, 0);
 		break;
 	    case 'F': /* cursor up and to first column */
 		dprintf("cursor up and to first column \n");
@@ -1589,8 +1746,8 @@ static void console_putchar(TextConsole *s, int ch)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		set_cursor(s, s->y - a, 0);;
-		if (s->y < s->top_marg)
-		    set_cursor(s, s->top_marg, 0);
+		if (s->y < s->sr_top)
+		    set_cursor(s, s->sr_top, 0);
 		break;
 	    case '`': /* fallthrough */
 	    case 'G':
@@ -1608,9 +1765,8 @@ static void console_putchar(TextConsole *s, int ch)
 				x_ = s->esc_params[0] ? s->esc_params[0]-1 : 0;
 			break;
 		}
-		set_cursor(s, x_ + (s->origin_mode ? s->top_marg : 0), y_);
-		clip_y(s, y);
-		clip_x(s, x);
+		set_cursor(s, x_ + (s->origin_mode ? s->sr_top : 0), y_);
+		clip_xy(s, x, y);
 		dprintf("cursor pos %d:%d\n", s->y, s->x);
 		break;
 	    case 'J': /* eraseInDisplay */
@@ -1638,18 +1794,18 @@ static void console_putchar(TextConsole *s, int ch)
 		    else if (s->esc_params[0] == 1)
 			x1 = s->x + 1;
 		    dprintf("clear line %d %d->%d\n", s->y, x, x1 - 1);
-		    clear(s, s->y, x, s->y, x1);
+		    clear(s, s->y, x, s->y, x1-1);
                 }
                 break;
 	    case 'L':
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
-		scroll_down(s, s->y, s->bot_marg, s->esc_params[0]);
+		scroll_down(s, s->esc_params[0]);
 		break;
 	    case 'M':
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
-		scroll_up(s, s->y, s->bot_marg, s->esc_params[0]);
+		scroll_up(s, s->esc_params[0]);
 		break;
 	    case 'P':		/* DCH */
 		console_dch(s);
@@ -1660,28 +1816,27 @@ static void console_putchar(TextConsole *s, int ch)
 		clear(s, s->y, s->x, s->y, s->x + s->esc_params[0]);
                 break;
 	    case 'c': /* device attributes */
-		if (s->nb_esc_params == 0 ||
-		    (s->nb_esc_params == 1 && s->esc_params[0] == 0)) {
-		    if ( !s->has_qmark ) {
-			if (s->ansi_mode)
-			    va_write(s, "\033[?1;2c"); // I'm a VT100 ansi
-			else
+		if (s->nb_esc_params == 0 ) {
+			if (s->t_attrib.utf) 
 			    va_write(s, "\033[?62;1;2c"); // I'm a VT220
-		    }
+			else
+			    va_write(s, "\033[?6c"); // I'm a VT102
 		}
+		/* if there are any params, just return, 
+		   XXX if anyone has idea, spec on how it exactly should behave, file a ticket */
 		break;
 	    case 'd':
 		if (s->nb_esc_params == 1) {
-		    set_cursor(s, s->esc_params[0] - 1, s->x);
+		    set_cursor(s, s->esc_params[0], s->x);
 		}
 		break;
 	    case 'e':
 		if (s->nb_esc_params == 1) {
 		    if (s->esc_params[0] == 0)
 			s->esc_params[0] = 1;
-		    set_cursor(s, s->y + s->esc_params[0] - 1, s->x);
-		    if (s->y > s->bot_marg)
-			set_cursor(s, s->bot_marg, s->x);
+		    set_cursor(s, s->y + s->esc_params[0], s->x);
+		    if (s->y > s->sr_bottom)
+			set_cursor(s, s->sr_bottom, s->x);
 		}
 		break;
 	    case 'm':
@@ -1699,7 +1854,7 @@ static void console_putchar(TextConsole *s, int ch)
 			    s->cursorkey_mode = a;
 			    break;
 			case 2:
-			    s->ansi_mode = a;
+			    s->t_attrib.utf = ~a;
 			    break;
 			case 3: // I
 			    // s->column_mode = a;
@@ -1728,7 +1883,7 @@ static void console_putchar(TextConsole *s, int ch)
 			    break;
 
 			case 25:
-			    // s->cursorvisible_mode = a;
+			    s->cursor_visible = a;
 			    break;
 			case 1000:
 			    // s->mousereporting_mode = a;
@@ -1759,15 +1914,14 @@ static void console_putchar(TextConsole *s, int ch)
 		}
 	    case 'r':
 		if (s->nb_esc_params == 0) {
-		    s->top_marg = 0;
-		    s->bot_marg = s->height - 1;
+		    s->sr_top = 0;
+		    s->sr_bottom = s->height - 1;
 		} else if (s->nb_esc_params == 2) {
-		    s->top_marg = s->esc_params[0] - 1;
-		    clip_y(s, top_marg);
-		    s->bot_marg = s->esc_params[1] - 1;
-		    clip_y(s, bot_marg);
+		    s->sr_top = s->esc_params[0] - 1;
+		    s->sr_bottom = s->esc_params[1] - 1;
+		    clip_xy(s, sr_top, sr_bottom);
 		}
-		set_cursor(s, s->top_marg, 0);
+		set_cursor(s, s->sr_top, 0);
 		break;
 	    case 's':
 		s->saved_x = s->x;
@@ -1985,16 +2139,16 @@ void kbd_put_keysym(int keysym)
 
     switch(keysym) {
     case QEMU_KEY_CTRL_UP:
-        console_scroll(-1);
+        console_scroll(s, -1);
         break;
     case QEMU_KEY_CTRL_DOWN:
-        console_scroll(1);
+        console_scroll(s, 1);
         break;
     case QEMU_KEY_SHIFT_PAGEUP:
-        console_scroll(-10);
+        console_scroll(s, -10);
         break;
     case QEMU_KEY_SHIFT_PAGEDOWN:
-        console_scroll(10);
+        console_scroll(s, 10);
         break;
     default:
         /* convert the QEMU keysym to VT100 key string */
@@ -2047,6 +2201,8 @@ static TextConsole *new_console(DisplayState *ds, int text)
     if (!s) {
         return NULL;
     }
+    memset(s, 0, sizeof(TextConsole));
+
     if (!active_console || (active_console->text_console && !text))
         active_console = s;
     s->ds = ds;
@@ -2132,14 +2288,13 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->out_fifo.buf_size = sizeof(s->out_fifo_buf);
     s->kbd_timer = qemu_new_timer(rt_clock, kbd_send_chars, s);
 #endif
-    
+
     if (!color_inited) {
         color_inited = 1;
         set_color_table(ds);
     }
 
-    s->y_displayed = 0;
-    s->y_base = 0;
+    s->y_base = DEFAULT_BACKSCROLL/3;
     s->total_height = DEFAULT_BACKSCROLL;
     set_cursor(s, 0, 0);
 
