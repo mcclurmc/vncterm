@@ -556,6 +556,31 @@ static void vnc_send_custom_cursor(struct VncClientState *vcs)
     free(cursorcur);
 }
 
+static void vnc_dpy_copy_rect(DisplayState *ds, int xf, int yf, int xt, int yt, int w, int h)
+{
+    struct VncState *vs = ds->opaque;
+    struct VncClientState *vcs;
+    int i;
+
+    dprintf("sending copy rect. %d,%d->%d,%d [%d,%d]\n", xf, yf, xt, yt, w, h);
+
+    for (i = 0; i < MAX_CLIENTS; i++) {
+	if (!VCS_ACTIVE(vs->vcs[i]))
+	    continue;
+	
+	vcs = vs->vcs[i];
+
+	vnc_write_u16(vcs, 0);
+	vnc_write_u16(vcs, 1); /* number of rects */
+	
+	/* width 8, height - number of bytes in mask, hotspot in the middle */
+	vnc_framebuffer_update(vcs, xt, yt, w, h, 1);
+	vnc_write_u16(vcs, xf); /* src X */
+	vnc_write_u16(vcs, yf); /* src Y */
+    }
+
+}
+
 static void hextile_enc_cord(uint8_t *ptr, int x, int y, int w, int h)
 {
     ptr[0] = ((x & 0x0F) << 4) | (y & 0x0F);
@@ -1847,6 +1872,7 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
     vs->ds->dpy_refresh = vnc_dpy_refresh;
     vs->ds->dpy_set_server_text = vnc_set_server_text;
     vs->ds->dpy_bell = vnc_send_bell;
+    vs->ds->dpy_copy_rect = vnc_dpy_copy_rect;
     vs->ds->dpy_clients_connected = vnc_dpy_clients_connected;
 
     vnc_dpy_resize(vs->ds, width, height);
