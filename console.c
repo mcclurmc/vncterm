@@ -792,7 +792,7 @@ static int line_dist(TextConsole *s, int yf, int yt)
    takes coordinates in virtual space already
 */
 static char *
-get_text(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
+get_text(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
 {
     TextCell *c;
     char *buffer;
@@ -1086,13 +1086,9 @@ static void scroll_up(TextConsole* s, int n)
 	    return;
 	}
 	/* region scroll */
-printf("%d %d %d\n", s->sr_top, s->sr_bottom, n);
 	scroll_text_cells(s, s->sr_top+n, s->sr_top, s->sr_bottom-s->sr_top-n+1);
-printf("%d %d %d \n",s->sr_top+n, s->sr_top, s->sr_bottom-s->sr_top-n+1); 
 	update_rect(s, 0, s->sr_top, s->width, s->sr_bottom-s->sr_top-n+1 );
-printf("%d %d %d %d\n",0, s->sr_top, s->width, s->sr_bottom-s->sr_top-n+1 ); 
 	clear(s, 0, s->sr_bottom-n+1, s->width, s->sr_bottom);
-printf("%d %d %d %d\n\t-----\n", 0, s->sr_bottom-n+1, s->width, s->sr_bottom);
 	return;
     }
 
@@ -1154,8 +1150,8 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
         /* if button was pressed before, means we have to grab selected text
            end send it to peer's clipboard */
 	if (s->selecting) {
-	    text = get_text(s, s->selections[0].starty, s->selections[0].startx,
-			   s->selections[0].endy, s->selections[0].endx);
+	    text = get_text(s, s->selections[0].startx, s->selections[0].starty,
+			   s->selections[0].endx, s->selections[0].endy);
 
 	    if ( strlen(text) )
 		s->ds->dpy_set_server_text(s->ds, text);
