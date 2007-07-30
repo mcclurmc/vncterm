@@ -1478,8 +1478,7 @@ static void console_dch(TextConsole *s)
 
 static void console_putchar(TextConsole *s, int ch)
 {
-    TextCell *c, *d;
-    int y1, i, x, x1, a;
+    int i, x, x1, a;
     int x_, y_, och;
 
     dprintf("putchar %d '%c' state:%d \n", ch, ch, s->state);
