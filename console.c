@@ -823,6 +823,7 @@ get_text(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
 	if (from_x >= s->width) {
 	    from_x = 0;
 	    from_y = next_line(s, from_y);
+	    buffer[bufidx++] = '\n';
 	}
     }
     buffer[bufidx] = 0;
