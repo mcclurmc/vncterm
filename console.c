@@ -561,9 +561,9 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
     unsigned int fgcol, bgcol;
     DisplayState *ds = s->ds;
 
-    dprintf("x: %2i y: %2i", x, y);
+//    dprintf("x: %2i y: %2i", x, y);
     console_print_text_attributes(t_attrib, ch);
-    dprintf("font:%d\n", t_attrib->font);
+//    dprintf("font:%d\n", t_attrib->font);
 
     if (t_attrib->invers ^ c_attrib->highlit ^
 	((s->cursor_visible && x == s->x && y == s->y) ))
@@ -580,7 +580,7 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
         ds->linesize * y * FONT_HEIGHT + bpp * x * FONT_WIDTH;
     linesize = ds->linesize;
 
-    dprintf("vga_putcharxy: %d font:%d\n", ch, t_attrib->font );
+//    dprintf("vga_putcharxy: %d font:%d\n", ch, t_attrib->font );
     switch( t_attrib->font ) {
 	case G0:
 	    font_ptr = vgafont16 + FONT_HEIGHT * ch;
@@ -924,6 +924,7 @@ static void console_refresh(TextConsole *s)
     console_show_cursor(s, 1);
 }
 
+
 static void clear_line(TextConsole *s, int line, int from_x, int to_x)
 {
     TextCell *c;
@@ -932,10 +933,13 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
     if (from_x >= to_x)
 	return;
 
-    m_fy = screen_to_virtual(s, line);
+    if (to_x>s->width)
+	to_x = s->width;
 
+    m_fy = screen_to_virtual(s, line);
     c = &s->cells[(m_fy * s->width)+from_x];
-    for(i=from_x;i<to_x && i<s->width;i++) {
+
+    for(i=from_x;i<to_x;i++) {
 
 /* XXX: we could send update per character, and only if character has changed
    most of the time, clearing a line from some point to width wastes quite few rects being sent out */
@@ -946,16 +950,16 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
 	c->t_attrib.bgcol = s->t_attrib.bgcol;
 	c++;
    }
-
+printf("%d %d %d\n", from_x, line, to_x);
+   update_rect(s, from_x, line, to_x-from_x, 1);
 }
 
-static void clear(TextConsole *s, int from_y, int from_x, int to_y, int to_x)
+static void clear(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
 {
     int i;
-    for( i=from_y;i<=to_y;i++ )
+    for( i=from_y;i<to_y;i++ )
 	clear_line(s, i, from_x, to_x);
 }
-
 
 /* this just scrolls view */
 static void console_scroll(TextConsole *s, int ydelta)
@@ -1036,7 +1040,7 @@ static void scroll_down(TextConsole* s, int n)
 	/* region scroll */
 	scroll_text_cells(s, s->sr_bottom-n, s->sr_bottom, (s->sr_bottom-s->sr_top-n+1) * -1);
 	update_rect(s, 0, s->sr_top+n, s->width, s->sr_bottom-s->sr_top-n );
-	clear(s, s->sr_top, 0, s->sr_top+n-1, s->width);
+	clear(s, 0, s->sr_top, s->width, s->sr_top+n-1);
 	return;
     }
 
@@ -1057,7 +1061,7 @@ static void scroll_down(TextConsole* s, int n)
 
     vga_scroll(s, -n);
 
-    clear(s, 0, 0, n, s->width );
+    clear(s, 0, 0, s->width, n );
     s->ds->dpy_update(s->ds, 0, 0, s->g_width, n*FONT_HEIGHT );
 //    update_rect(s, 0, 0, s->width, n );
 
@@ -1074,7 +1078,7 @@ static void scroll_up(TextConsole* s, int n)
 	/* region scroll */
 	scroll_text_cells(s, s->sr_top+n, s->sr_top, s->sr_bottom-s->sr_top-n+1);
 	update_rect(s, 0, s->sr_top, s->width, s->sr_bottom-s->sr_top-n );
-	clear(s, s->sr_bottom-n+1, 0, s->sr_bottom, s->width);
+	clear(s, 0, s->sr_bottom-n+1, s->width, s->sr_bottom);
 	return;
     }
 
@@ -1092,7 +1096,7 @@ static void scroll_up(TextConsole* s, int n)
 
     vga_scroll(s, n);
 
-    clear(s, s->height-n, 0, s->height, s->width);
+    clear(s, 0, s->height-n, s->width, s->height);
     s->ds->dpy_update(s->ds, 0, (s->height-n)*FONT_HEIGHT, s->g_width, n);
 //    update_rect(s, 0, s->height-n, s->width, n);
     s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
@@ -1616,7 +1620,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    s->nb_esc_params = 0;
             s->t_attrib = s->t_attrib_default;
 	    zero_selection(s,1);
-	    clear(s, s->y, s->x, s->height, s->width);
+	    clear(s, s->x, s->y, s->width, s->height);
 	    break;
 	case 'D': /* linefeed */
 	    dprintf("ESC_LF\n");
@@ -1769,15 +1773,18 @@ static void console_putchar(TextConsole *s, int ch)
 		dprintf("cursor pos %d:%d\n", s->y, s->x);
 		break;
 	    case 'J': /* eraseInDisplay */
-		if (s->nb_esc_params == 1 && s->esc_params[0] == 2) {
-		    set_cursor(s, 0, 0);
-		    s->nb_esc_params = 0;
-		}
-		if (s->nb_esc_params == 0 ||
-		    (s->nb_esc_params == 1 && s->esc_params[0] == 0)) {
-		    clear(s, s->y, s->x, s->height - 1, s->width);
-		} else if (s->nb_esc_params == 1 && s->esc_params[0] == 1) {
-		    clear(s, 0, 0, s->y, s->x);
+		if (s->nb_esc_params == 0)
+		    s->esc_params[0] = 2;
+		switch(s->esc_params[0]) {
+		    case 0: /* erase from cursor to end of display */
+			clear(s, s->x, s->y, s->width, s->sr_bottom);
+			break;
+		    case 1: /* erase from start to cursor */
+			clear(s, 0, 0, s->x, s->y);
+			break;
+		    case 2: /* erase whole display */
+			clear(s, 0, 0, s->width, s->sr_bottom);
+			break;
 		}
 		break;
             case 'K':
@@ -1793,7 +1800,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    else if (s->esc_params[0] == 1)
 			x1 = s->x + 1;
 		    dprintf("clear line %d %d->%d\n", s->y, x, x1 - 1);
-		    clear(s, s->y, x, s->y, x1-1);
+		    clear(s, x, s->y, x1-1, s->y);
                 }
                 break;
 	    case 'L':
@@ -1812,7 +1819,7 @@ static void console_putchar(TextConsole *s, int ch)
             case 'X':
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
-		clear(s, s->y, s->x, s->y, s->x + s->esc_params[0]);
+		clear(s, s->x, s->y, s->x + s->esc_params[0], s->y);
                 break;
 	    case 'c': /* device attributes */
 		if (s->nb_esc_params == 0 ) {
