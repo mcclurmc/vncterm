@@ -1693,19 +1693,9 @@ static void console_putchar(TextConsole *s, int ch)
 	    s->state = TTY_STATE_NORM;
             switch(ch) {
 	    case '@': /* ins del characters */
-		y1 = screen_to_virtual(s, s->y);
-		c = &s->cells[y1 * s->width + s->width - 1];
-		if (s->esc_params[0] == 0)
-		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
-		d = &s->cells[y1 * s->width + s->width - 1 - a];
-                for(x = s->width - 1; x >= s->x + a; x--) {
-                    c->ch = d->ch;
-                    c->t_attrib = d->t_attrib;
-                    c--;
-		    d--;
-                    update_xy(s, x, s->y);
-                }
+		while(a--)
+		    do_putchar(s, ' ');
                 break;
 	    case 'A': /* cursor up */
 		dprintf("cursor up\n");
