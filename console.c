@@ -844,7 +844,7 @@ get_text(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
     this operates on 'virtual' coordinates
 */
 static void
-highlight(TextConsole *s, int from_y, int from_x, int to_y, int to_x, int highlight)
+highlight(TextConsole *s, int from_x, int from_y, int to_x, int to_y, int highlight)
 {
     TextCell *c;
     int sc_fy, sc_ty;
@@ -1167,8 +1167,8 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	    /* if previous highlight is still displayed, 
                we have to cancel it */
 	    if ( !is_selection_zero(s, 1) )
-		highlight(s, s->selections[1].starty, s->selections[1].startx,
-			   s->selections[1].endy, s->selections[1].endx, 0);
+		highlight(s, s->selections[1].startx, s->selections[1].starty,
+			   s->selections[1].endx, s->selections[1].endy, 0);
 	    zero_selection(s, 1);
 	    /* initialize current coordinates */
 	    s->selections[0].startx = dx;
@@ -1177,11 +1177,11 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	    s->selections[0].endy = screen_to_virtual(s, dy);
 	    s->selecting=1;
 	    /* highlite current character */
-	    highlight(s, screen_to_virtual(s, dy), dx, screen_to_virtual(s, dy), dx, 1);
+	    highlight(s, dx, screen_to_virtual(s, dy), dx, screen_to_virtual(s, dy), 1);
 	}
 	else {
 	    /* in this case, we just have to update selection */
-	    highlight(s, s->selections[0].endy, s->selections[0].endx, screen_to_virtual(s, dy), dx, 1);
+	    highlight(s, s->selections[0].endx, s->selections[0].endy, dx, screen_to_virtual(s, dy), 1);
 	    s->selections[0].endx = dx;
 	    s->selections[0].endy = screen_to_virtual(s, dy);
 	}
