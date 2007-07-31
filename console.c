@@ -566,7 +566,7 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
 //    dprintf("font:%d\n", t_attrib->font);
 
     if (t_attrib->invers ^ c_attrib->highlit ^
-	((s->cursor_visible && x == s->x && y == s->y) ))
+	((s->cursor_visible && x == s->x && y == s->y && !s->y_scroll) ))
     {
         bgcol = color_table[0][t_attrib->fgcol];
         fgcol = color_table[t_attrib->bold][t_attrib->bgcol];
@@ -757,18 +757,9 @@ static void set_cursor(TextConsole *s, int x, int y)
 
 static void console_show_cursor(TextConsole *s, int show)
 {
-    TextCell *c;
-
     s->cursor_visible = show;
     if (s == active_console && s->x < s->width) {
-        if (s->y < s->height) {
-            c = &s->cells[screen_to_virtual(s, s->y) * s->width + s->x];
-	    if (s->y_scroll)
-		return;
-            vga_putcharxy(s, s->x, s->y, c->ch, &(c->t_attrib), &(c->c_attrib));
-            s->ds->dpy_update(s->ds, s->x * FONT_WIDTH, s->y * FONT_HEIGHT, 
-                                            FONT_WIDTH, FONT_HEIGHT);
-        }
+	update_xy(s, s->x, s->y);
     }
 }
 
@@ -882,6 +873,7 @@ highlight(TextConsole *s, int from_x, int from_y, int to_x, int to_y, int highli
 	}
     }
 }
+
 /*
 static void
 refresh(TextConsole *s, int y, int x)
@@ -996,7 +988,6 @@ static void console_scroll(TextConsole *s, int ydelta)
     else {
 	update_rect(s, 0, 0, s->width, s->height );
     }
-
 }
 
 static void scroll_text_cells(TextConsole* s, int f, int t, int by)
@@ -1164,8 +1155,9 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
                we have to cancel it */
 	    if ( !is_selection_zero(s, 1) )
 		highlight(s, s->selections[1].startx, s->selections[1].starty,
-			   s->selections[1].endx, s->selections[1].endy, 0);
+			s->selections[1].endx, s->selections[1].endy, 0);
 	    zero_selection(s, 1);
+
 	    /* initialize current coordinates */
 	    s->selections[0].startx = dx;
 	    s->selections[0].starty = screen_to_virtual(s, dy);
@@ -1176,10 +1168,17 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	    highlight(s, dx, screen_to_virtual(s, dy), dx, screen_to_virtual(s, dy), 1);
 	}
 	else {
+	if ( !is_selection_zero(s, 0) )
 	    /* in this case, we just have to update selection */
-	    highlight(s, s->selections[0].endx, s->selections[0].endy, dx, screen_to_virtual(s, dy), 1);
+	    /* zero the highlight first */
+	    highlight(s, s->selections[0].startx, s->selections[0].starty,
+		s->selections[0].endx, s->selections[0].endy, 0);
+	    /* update coords */
 	    s->selections[0].endx = dx;
 	    s->selections[0].endy = screen_to_virtual(s, dy);
+	    /* highlight new region */
+	    highlight(s, s->selections[0].startx, s->selections[0].starty,
+		s->selections[0].endx, s->selections[0].endy, 1);
 	}
     }
 }
