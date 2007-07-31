@@ -983,9 +983,6 @@ static void console_scroll(TextConsole *s, int ydelta)
     if (ydelta == 0)
 	return;
 
-    if (s->y_scroll)
-	console_show_cursor(s, 0);
-
     if (abs(ydelta) < s->height) {
 	vga_scroll(s, ydelta);
 	
@@ -1000,9 +997,6 @@ static void console_scroll(TextConsole *s, int ydelta)
     else {
 	update_rect(s, 0, 0, s->width, s->height );
     }
-
-    if (!s->y_scroll)
-	console_show_cursor(s, 1);
 
 }
 
