@@ -986,22 +986,24 @@ static void console_scroll(TextConsole *s, int ydelta)
     if (s->y_scroll)
 	console_show_cursor(s, 0);
 
-    if (abs(ydelta) >= s->height)
-	s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
-    else {
-
+    if (abs(ydelta) < s->height) {
 	vga_scroll(s, ydelta);
 	
 	if (ydelta>0)
 	    update_rect(s, 0, s->height-ydelta, s->width, ydelta );
 	else
 	    update_rect(s, 0, 0, s->width, -ydelta );
+
+	/* update whole region, because dpy_copy_rect is currently not used */
+	s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
+    }
+    else {
+	update_rect(s, 0, 0, s->width, s->height );
     }
 
     if (!s->y_scroll)
 	console_show_cursor(s, 1);
 
-s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
 }
 
 static void scroll_text_cells(TextConsole* s, int f, int t, int by)
