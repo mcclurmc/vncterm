@@ -1459,7 +1459,7 @@ static void console_dch(TextConsole *s)
 	update_xy(s, x, s->y);
     }
     /* for the last char on console, check wether it is the last line */
-    if ( s->y == s->height ) {
+    if ( s->y == s->height-1 ) {
 	c->ch = ' ';
 	c->t_attrib = s->t_attrib_default;
     }
