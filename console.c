@@ -931,7 +931,7 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
     m_fy = screen_to_virtual(s, line);
     c = &s->cells[(m_fy * s->width)+from_x];
 
-    for(i=from_x;i<to_x;i++) {
+    for(i=from_x;i<=to_x;i++) {
 
 /* XXX: we could send update per character, and only if character has changed
    most of the time, clearing a line from some point to width wastes quite few rects being sent out */
@@ -943,7 +943,7 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
 	c++;
    }
 
-   update_rect(s, from_x, line, to_x-from_x, 1);
+   update_rect(s, from_x, line, to_x-from_x+1, 1);
 }
 
 static void clear(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
@@ -1259,7 +1259,7 @@ static void console_handle_escape(TextConsole *s)
                 s->t_attrib.unvisible = 1;
                 break;
 /*
-10  reset selected mapping, display control flag,
+  10  reset selected mapping, display control flag,
   and toggle meta flag.
   11  select null mapping, set display control flag,
   reset toggle meta flag.
@@ -1827,7 +1827,7 @@ static void console_putchar(TextConsole *s, int ch)
 		break;
 	    case 'd':
 		if (s->nb_esc_params == 1) {
-		    set_cursor(s, s->x, s->esc_params[0]);
+		    set_cursor(s, s->x, s->esc_params[0]-1);
 		}
 		break;
 	    case 'e':
