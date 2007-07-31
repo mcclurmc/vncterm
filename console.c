@@ -838,7 +838,6 @@ get_text(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
 				A->selections[B].starty | \
 				A->selections[B].endx | \
 				A->selections[B].endy ) == 0 )
-#define update_selection(A,B,Y) {if (!is_selection_zero(A,B)){A->selections[B].starty+=Y;A->selections[B].endy+=Y;}}
 
 /*
     highlight the selected text visualy
