@@ -148,12 +148,10 @@ struct VncState
     DisplayState *ds;
     struct VncClientState *vcs[MAX_CLIENTS];
 
-    uint64_t *dirty_row;	/* screen regions which are possibly dirty */
     int dirty_pixel_shift;
     uint64_t *update_row;	/* outstanding updates */
     int has_update;		/* there's outstanding updates in the
 				 * visible area */
-    uint8_t *old_data;
 
     int depth; /* internal VNC frame buffer byte per pixel */
 
@@ -300,7 +298,8 @@ static void vnc_dpy_update(DisplayState *ds, int x, int y, int w, int h)
 {
     VncState *vs = ds->opaque;
 
-    set_bits_in_row(vs, vs->dirty_row, x, y, w, h);
+    set_bits_in_row(vs, vs->update_row, x, y, w, h);
+    vs->has_update = 1;
 }
 
 static unsigned char vnc_dpy_clients_connected(DisplayState *ds)
@@ -398,16 +397,11 @@ static void vnc_dpy_resize(DisplayState *ds, int w, int h)
 
     if (w != ds->width || h != ds->height || w * vs->depth != ds->linesize) {
 	free(ds->data);
-	free(vs->old_data);
-	free(vs->dirty_row);
 	free(vs->update_row);
 	ds->data = qemu_mallocz(w * h * vs->depth);
-	vs->old_data = qemu_mallocz(w * h * vs->depth);
-	vs->dirty_row = qemu_mallocz(h * sizeof(vs->dirty_row[0]));
-	vs->update_row = qemu_mallocz(h * sizeof(vs->dirty_row[0]));
+	vs->update_row = qemu_mallocz(h * sizeof(vs->update_row[0]));
 
-	if (ds->data == NULL || vs->old_data == NULL ||
-	    vs->dirty_row == NULL || vs->update_row == NULL) {
+	if (ds->data == NULL || /*vs->dirty_row == NULL || */vs->update_row == NULL) {
 	    fprintf(stderr, "vnc: memory allocation failed\n");
 	    exit(1);
 	}
@@ -651,11 +645,8 @@ static void _vnc_update_client(void *opaque)
     VncState *vs = opaque;
     int64_t now;
     int y;
-    uint8_t *row;
-    uint8_t *old_row;
     uint64_t width_mask;
     int maxx, maxy;
-    int tile_bytes = vs->depth * DP2X(vs, 1);
     int new_rectangles;
 
     now = vs->ds->get_clock();
@@ -665,40 +656,8 @@ static void _vnc_update_client(void *opaque)
     else
 	width_mask = ~(0ULL);
 
-    /* Walk through the dirty map and eliminate tiles that really
-       aren't dirty */
-    row = vs->ds->data;
-    old_row = vs->old_data;
-
-    for (y = 0; y < vs->ds->height; y++) {
-	if (vs->dirty_row[y] & width_mask) {
-	    int x;
-	    uint8_t *ptr, *old_ptr;
-
-	    ptr = row;
-	    old_ptr = old_row;
-
-	    for (x = 0; x < X2DP_UP(vs, vs->ds->width); x++) {
-		if (vs->dirty_row[y] & (1ULL << x)) {
-		    if (memcmp(old_ptr, ptr, tile_bytes)) {
-			vs->has_update = 1;
-			vs->update_row[y] |= (1ULL << x);
-			memcpy(old_ptr, ptr, tile_bytes);
-		    }
-		    vs->dirty_row[y] &= ~(1ULL << x);
-		}
-
-		ptr += tile_bytes;
-		old_ptr += tile_bytes;
-	    }
-	}
-  
-	row += vs->ds->linesize;
-	old_row += vs->ds->linesize;
-    }
-
-    if (!vs->has_update || vs->visible_y >= vs->ds->height ||
-	vs->visible_x >= vs->ds->width)
+    if (!vs->has_update || vs->visible_y >= vs->ds->height 
+	|| vs->visible_x >= vs->ds->width)
 	goto backoff;
 
     vnc_send_resize(vs->ds);
@@ -934,7 +893,7 @@ static int vnc_process_messages(struct VncClientState *vcs)
 	    vpm->vpm_region_updates = rup->next;
 	    vnc_framebuffer_update(vcs, rup->x, rup->y, rup->w, rup->h,
 				   vcs->has_hextile ? 5 : 0);
-	    row = vs->old_data + rup->y * vs->ds->linesize +
+	    row = vs->ds->data + rup->y * vs->ds->linesize +
 		rup->x * vs->depth;
 	    stride = vs->ds->linesize;
 	    if (vcs->has_hextile) {
