@@ -60,6 +60,7 @@ typedef struct TextAttributes {
 
 typedef struct CellAttributes {
     uint8_t highlit:1;
+    uint8_t wrapped:1;
 } CellAttributes;
 
 typedef struct TextCell {
@@ -670,6 +671,7 @@ static void text_console_resize(TextConsole *s)
         for(x = w1; x < s->width; x++) {
             c->ch = ' ';
             c->t_attrib = s->t_attrib_default;
+            c->c_attrib = s->c_attrib_default;
             c++;
         }
     }
@@ -789,7 +791,6 @@ get_text(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
     TextCell *c;
     char *buffer;
     int bufidx = 0;
-
     int sc_fy, sc_ty;
 
     sc_fy = virtual_to_screen(s, from_y);
@@ -815,7 +816,8 @@ get_text(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
 	if (from_x >= s->width) {
 	    from_x = 0;
 	    from_y = next_line(s, from_y);
-	    buffer[bufidx++] = '\n';
+	    if (!(c->t_attrib.used && c->c_attrib.wrapped))
+		buffer[bufidx++] = '\n';
 	}
     }
     buffer[bufidx] = 0;
@@ -941,6 +943,7 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
 	c->t_attrib = s->t_attrib_default;
 	c->t_attrib.fgcol = s->t_attrib.fgcol;
 	c->t_attrib.bgcol = s->t_attrib.bgcol;
+        c->c_attrib.wrapped = s->c_attrib_default.wrapped;
 	c++;
    }
 
@@ -1382,6 +1385,8 @@ static void do_putchar(TextConsole *s, int ch)
 
     put_norm(ch);
     if (s->wrapped) {
+	c = &s->cells[screen_to_virtual(s, s->y) * s->width + s->x];
+	c->c_attrib.wrapped=1;
 	set_cursor(s, 0, s->y);
 	console_put_lf(s);
     }
@@ -1463,6 +1468,7 @@ static void console_dch(TextConsole *s)
     if ( s->y == s->height-1 ) {
 	c->ch = ' ';
 	c->t_attrib = s->t_attrib_default;
+	c->c_attrib = s->c_attrib_default;
     }
     else {
 	c->ch = d->ch;
@@ -2321,6 +2327,7 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->t_attrib_default.codec[1] = MAPGRAF;
     s->t_attrib_default.font = G0;
     s->c_attrib_default.highlit = 0;
+    s->c_attrib_default.wrapped = 0;
     s->unicodeIndex = 0;
     s->unicodeLength = 0;
 
