@@ -1030,7 +1030,7 @@ static void scroll_down(TextConsole* s, int n)
 	}
 	/* region scroll */
 	scroll_text_cells(s, s->sr_bottom-n, s->sr_bottom, (s->sr_bottom-s->sr_top-n+1) * -1);
-	update_rect(s, 0, s->sr_top+n, s->width, s->sr_bottom-s->sr_top-n );
+	update_rect(s, 0, s->sr_top+n, s->width, s->sr_bottom-s->sr_top-n+1 );
 	clear(s, 0, s->sr_top, s->width, n);
 	return;
     }
