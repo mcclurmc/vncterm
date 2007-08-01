@@ -685,6 +685,8 @@ static int virtual_to_screen(TextConsole *s, int y)
 {
     y -= s->y_base-s->y_scroll;
 
+    if (y<0)
+	y += s->total_height;
     return y;
 }
 
@@ -791,7 +793,7 @@ get_text(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
     sc_ty = virtual_to_screen(s, to_y);
 
     /* swap if necessary */
-    if (sc_ty < sc_fy || (sc_ty == sc_fy && to_x < from_x)) {
+    if ((sc_ty < sc_fy || (sc_ty == sc_fy && to_x < from_x)) && abs(sc_fy)-abs(sc_ty) < s->height) {
 	swap_coords(to_y, from_y, to_x, from_x);
 	sc_fy = sc_ty;
     }
@@ -844,7 +846,7 @@ highlight(TextConsole *s, int from_x, int from_y, int to_x, int to_y, int highli
     sc_ty = virtual_to_screen(s, to_y);
 
     /* swap if necessary */
-    if (sc_ty < sc_fy || (sc_ty == sc_fy && to_x < from_x)) {
+    if ((sc_ty < sc_fy || (sc_ty == sc_fy && to_x < from_x)) && abs(sc_fy)-abs(sc_ty) < s->height) {
 	swap_coords(to_y, from_y, to_x, from_x);
 	sc_fy = sc_ty;
     }
