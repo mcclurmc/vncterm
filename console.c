@@ -1479,7 +1479,8 @@ static void console_dch(TextConsole *s)
 
 static void console_putchar(TextConsole *s, int ch)
 {
-    int i, x, x1, a;
+    TextCell *c, *d;
+    int y1, i, x, x1, a;
     int x_, y_, och;
 
     dprintf("putchar %d '%c' state:%d \n", ch, ch, s->state);
@@ -1699,8 +1700,19 @@ static void console_putchar(TextConsole *s, int ch)
             switch(ch) {
 	    case '@': /* ins del characters */
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
-		while(a--)
-		    do_putchar(s, ' ');
+		y1 = screen_to_virtual(s, s->y);
+		c = &s->cells[y1 * s->width + s->width - 1];
+		if (s->esc_params[0] == 0)
+		    s->esc_params[0] = 1;
+		a = s->nb_esc_params ? s->esc_params[0] : 1;
+		d = &s->cells[y1 * s->width + s->width - 1 - a];
+		for(x = s->width - 1; x >= s->x + a; x--) {
+		    c->ch = d->ch;
+		    c->t_attrib = d->t_attrib;
+		    c--;
+		    d--;
+		    update_xy(s, x, s->y);
+		}
                 break;
 	    case 'A': /* cursor up */
 		dprintf("cursor up\n");
