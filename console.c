@@ -924,8 +924,8 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
     if (from_x >= to_x)
 	return;
 
-    if (to_x>s->width)
-	to_x = s->width;
+    if (to_x>=s->width)
+	to_x = s->width-1;
 
     m_fy = screen_to_virtual(s, line);
     c = &s->cells[(m_fy * s->width)+from_x];
