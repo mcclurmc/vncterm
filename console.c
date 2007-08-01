@@ -683,13 +683,11 @@ static void text_console_resize(TextConsole *s)
 */
 #define next_line(A,Y) ((Y+1)%s->total_height)
 
-/* projection onto 'real' screen */
+/* projection onto 'real' screen 
+   warning, this can return negative y or over s->height */
 static int virtual_to_screen(TextConsole *s, int y) 
 {
     y -= s->y_base-s->y_scroll;
-
-    if (y<0)
-	y += s->total_height;
 
     return y;
 }
@@ -716,6 +714,9 @@ static int screen_to_virtual(TextConsole *s, int y)
 static void update_xy(TextConsole *s, int x, int y)
 {
     TextCell *c;
+
+    if (y<0 || x<0 || x>=s->width || y>=s->height)
+	return;
 
     if (s == active_console) {
 
