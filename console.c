@@ -1630,6 +1630,10 @@ static void console_putchar(TextConsole *s, int ch)
 	    set_cursor(s, 0, 0);
 	    s->nb_esc_params = 0;
             s->t_attrib = s->t_attrib_default;
+	    /* reset any highlighted area */
+	    if ( !is_selection_zero(s, 1) )
+		highlight(s, s->selections[1].startx, s->selections[1].starty,
+			s->selections[1].endx, s->selections[1].endy, 0);
 	    zero_selection(s,1);
 	    clear(s, s->x, s->y, s->width, s->height);
 	    break;
