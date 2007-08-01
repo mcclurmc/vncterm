@@ -1025,7 +1025,7 @@ static void scroll_down(TextConsole* s, int n)
         return;
     if ( s->sr_top != 0 || s->sr_bottom != s->height-1 ) {
 	if ( n >= s->sr_bottom-s->sr_top ) {
-	    clear(s, 0, s->sr_top, s->width, s->sr_bottom-s->sr_bottom);
+	    clear(s, 0, s->sr_top, s->width, s->sr_bottom-s->sr_top);
 	    return;
 	}
 	/* region scroll */
