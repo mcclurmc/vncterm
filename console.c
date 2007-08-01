@@ -1810,8 +1810,8 @@ static void console_putchar(TextConsole *s, int ch)
 			x = s->x;
 		    else if (s->esc_params[0] == 1)
 			x1 = s->x + 1;
-		    dprintf("clear line %d %d->%d\n", s->y, x, x1 - 1);
-		    clear(s, x, s->y, x1-1, 1);
+		    dprintf("clear line %d %d->%d\n", s->y, x, x1);
+		    clear(s, x, s->y, x1, 1);
                 }
                 break;
 	    case 'L':
