@@ -949,8 +949,11 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
 static void clear(TextConsole *s, int from_x, int start_y, int to_x, int height)
 {
     int i;
-    for( i=0;i<height;i++ )
-	clear_line(s, start_y+i, from_x, to_x);
+    dprintf("clear(%d, %d, %d, %d)\n", from_x, start_y, to_x,
+	    start_y + height);
+    for (i = 0; i < height; i++)
+	clear_line(s, start_y + i,
+		   (i == 0) ? from_x : 0, (i == height - 1) ? to_x : s->width);
 }
 
 /* this just scrolls view */
@@ -1401,7 +1404,7 @@ static int handle_params(TextConsole *s, int ch)
 {
     int i;
 
-    dprintf("putchar csi %c %02x\n", ch > 0x1f ? ch : ' ', ch);
+    dprintf("putchar csi %02x '%c'\n", ch, ch > 0x1f ? ch : ' ');
     if (ch >= '0' && ch <= '9') {
 	if (s->nb_esc_params < MAX_ESC_PARAMS) {
 	    s->esc_params[s->nb_esc_params] = 
@@ -1424,7 +1427,7 @@ static int handle_params(TextConsole *s, int ch)
 	if (s->has_qmark)
 	    dprintf(" ?");
 	for (i = 0; i < s->nb_esc_params; i++)
-	    dprintf(" 0x%0x/%d", s->esc_params[i], s->esc_params[i]);
+	    dprintf(" 0x%02x/%d", s->esc_params[i], s->esc_params[i]);
 	dprintf("\n");
     }
     return 1;
@@ -1477,11 +1480,12 @@ static void console_putchar(TextConsole *s, int ch)
     int y1, i, x, x1, a;
     int x_, y_, och;
 
-    dprintf("putchar %d '%c' state:%d \n", ch, ch, s->state);
+    dprintf("putchar %02x '%c' state:%d\n", ch, ch > 0x1f ? ch : ' ',
+	    s->state);
 
     switch(s->state) {
     case TTY_STATE_NORM:
-	dprintf("putchar norm %c %02x\n", ch > 0x1f ? ch : ' ', ch);
+	dprintf("putchar norm %02x '%c'\n", ch, ch > 0x1f ? ch : ' ');
         switch(ch) {
         case BEL:
 	    dprintf("bell\n");
@@ -1608,7 +1612,7 @@ static void console_putchar(TextConsole *s, int ch)
         break;
     case TTY_STATE_ESC: /* check if it is a terminal escape sequence */
 	if (ch != '[')
-	    dprintf("putchar esc %c %02x\n", ch > 0x1f ? ch : ' ', ch);
+	    dprintf("putchar esc %02x '%c'\n", ch > 0x1f ? ch : ' ', ch);
 	s->state = TTY_STATE_NORM;
 	switch (ch) {
 	case ']': /* Operating system command */
@@ -1788,13 +1792,15 @@ static void console_putchar(TextConsole *s, int ch)
 		    s->esc_params[0] = 2;
 		switch(s->esc_params[0]) {
 		    case 0: /* erase from cursor to end of display */
-			clear(s, s->x, s->y, s->width, s->sr_bottom-s->y);
+			clear(s, s->x, s->y, s->width,
+			      s->sr_bottom - s->y + 1);
 			break;
 		    case 1: /* erase from start to cursor */
-			clear(s, 0, 0, s->x, s->y);
+			clear(s, 0, s->sr_top, s->x, s->y - s->sr_top + 1);
 			break;
 		    case 2: /* erase whole display */
-			clear(s, 0, 0, s->width, s->sr_bottom-s->sr_top);
+			clear(s, 0, s->sr_top, s->width,
+			      s->sr_bottom - s->sr_top + 1);
 			break;
 		}
 		break;
