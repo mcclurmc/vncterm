@@ -17,6 +17,7 @@
 
 #include <sys/poll.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -359,6 +360,7 @@ main(int argc, char **argv, char **envp)
 #ifndef NXENSTORE
     char *xenstore_path = NULL;
 #endif
+    char *vnclisten = NULL;
     int exit_on_eof = 1;
     int restart = 0;
     int restart_needed = 1;
@@ -386,10 +388,11 @@ main(int argc, char **argv, char **envp)
 	    {"stay", 0, 0, 's'},
 	    {"title", 1, 0, 't'},
 	    {"xenstore", 1, 0, 'x'},
+	    {"vnclisten", 1, 0, 'v'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+cp:rst:x:", long_options, NULL);
+	c = getopt_long(argc, argv, "+cp:rst:x:v:", long_options, NULL);
 	if (c == -1)
 	    break;
 
@@ -414,6 +417,9 @@ main(int argc, char **argv, char **envp)
 	    xenstore_path = strdup(optarg);
 #endif
 	    break;
+	case 'v':
+	    vnclisten = strdup(optarg);
+	    break;
 	}
     }
 
@@ -427,6 +433,10 @@ main(int argc, char **argv, char **envp)
     ds->kbd_put_keysym = kbd_put_keysym;
 
     memset(&sa.sin_addr, 0, sizeof(sa.sin_addr));
+    if (vnclisten != NULL)
+    {
+    	if (!inet_aton(vnclisten, &(sa.sin_addr))) err(1, "inet_aton");
+    }
     sa.sin_port = htons(0);
     ((struct sockaddr *)&sa)->sa_family = AF_INET;
 
