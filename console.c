@@ -921,20 +921,16 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
     TextCell *c;
     int m_fy, i;
 
-    if (from_x >= to_x)
+    if (to_x <= from_x)
 	return;
 
-    if (to_x>=s->width)
-	to_x = s->width-1;
+    if (to_x > s->width)
+	to_x = s->width;
 
     m_fy = screen_to_virtual(s, line);
     c = &s->cells[(m_fy * s->width)+from_x];
 
-    for(i=from_x;i<=to_x;i++) {
-
-/* XXX: we could send update per character, and only if character has changed
-   most of the time, clearing a line from some point to width wastes quite few rects being sent out */
-
+    for (i = from_x; i < to_x; i++) {
 	c->ch = ' ';
 	c->t_attrib = s->t_attrib_default;
 	c->t_attrib.fgcol = s->t_attrib.fgcol;
@@ -943,7 +939,7 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
 	c++;
    }
 
-   update_rect(s, from_x, line, to_x-from_x+1, 1);
+   update_rect(s, from_x, line, to_x - from_x, 1);
 }
 
 static void clear(TextConsole *s, int from_x, int start_y, int to_x, int height)
@@ -1216,7 +1212,7 @@ static void console_put_cr(TextConsole *s)
 
 static void console_put_ri(TextConsole *s)
 {
-    set_cursor(s, 0, s->y - 1);
+    set_cursor(s, s->x, s->y - 1);
     if (s->y < s->sr_top) {
 	set_cursor(s, s->x, s->sr_top);
 	scroll_down(s, 1);
@@ -1357,17 +1353,21 @@ static void console_handle_escape(TextConsole *s)
 #endif
 
 char normbuf[1024];
-int normidx = 0;
+int normidx = 0, norm_x = 0, norm_y = 0;
 static void print_norm(void)
 {
     if (normidx) {
 	normbuf[normidx] = 0;
-	dprintf("norm %s\n", normbuf);
+	dprintf("norm %d:%d >%s<\n", norm_x, norm_y, normbuf);
 	normidx = 0;
     }
 }
-static void put_norm(char ch)
+static void put_norm(TextConsole *s, char ch)
 {
+    if (normidx == 0) {
+	norm_x = s->x;
+	norm_y = s->y;
+    }
     normbuf[normidx++] = ch;
     if (normidx == 1024)
 	print_norm();
@@ -1379,7 +1379,7 @@ static void do_putchar(TextConsole *s, int ch)
 
     scroll_to_base(s);
 
-    put_norm(ch);
+    put_norm(s, ch);
     if (s->wrapped) {
 	c = &s->cells[screen_to_virtual(s, s->y) * s->width + s->x];
 	c->c_attrib.wrapped=1;
@@ -1480,8 +1480,7 @@ static void console_putchar(TextConsole *s, int ch)
     int y1, i, x, x1, a;
     int x_, y_, och;
 
-    dprintf("putchar %02x '%c' state:%d\n", ch, ch > 0x1f ? ch : ' ',
-	    s->state);
+    dprintf("putchar %02x '%c' state:%d\n", ch, ch > 0x1f ? ch : ' ', s->state);
 
     switch(s->state) {
     case TTY_STATE_NORM:
@@ -1516,16 +1515,16 @@ static void console_putchar(TextConsole *s, int ch)
             set_cursor(s, 0, s->y);
             break;
         case SO:
-	    dprintf("SO G1 switch");
+	    dprintf("SO G1 switch\n");
 	    s->t_attrib.font = G1;
             break;
         case SI:
-            dprintf("SI G0 switch");
+            dprintf("SI G0 switch\n");
 	    s->t_attrib.font = G0;
             break;
         case CAN:
 	case ESN:
-            dprintf("not implemented CAN");
+            dprintf("not implemented CAN\n");
             break;
         case ESC:
             dprintf("ESC state\n");
@@ -1697,72 +1696,72 @@ static void console_putchar(TextConsole *s, int ch)
 	    s->state = TTY_STATE_NORM;
             switch(ch) {
 	    case '@': /* ins del characters */
-		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		y1 = screen_to_virtual(s, s->y);
 		c = &s->cells[y1 * s->width + s->width - 1];
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		d = &s->cells[y1 * s->width + s->width - 1 - a];
-		for(x = s->width - 1; x >= s->x + a; x--) {
+		for (x = s->width - 1; x >= s->x + a; x--) {
 		    c->ch = d->ch;
 		    c->t_attrib = d->t_attrib;
 		    c--;
 		    d--;
 		    update_xy(s, x, s->y);
 		}
+		clear_line(s, s->y, s->x, s->x + a);
                 break;
 	    case 'A': /* cursor up */
-		dprintf("cursor up\n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
+		dprintf("cursor up %d\n", a);
 		set_cursor(s, s->x, s->y - a);
 		if (s->y < s->sr_top)
 		    set_cursor(s, s->x, s->sr_top);
 		break;
 	    case 'B': /* cursor down */
-		dprintf("cursor down\n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
+		dprintf("cursor down %d\n", a);
 		set_cursor(s, s->x, s->y + a);
 		if (s->y > s->sr_bottom)
 		    set_cursor(s, s->x, s->sr_bottom);
 		break;
 	    case 'a':
             case 'C': /* cursor right */
-		dprintf("cursor right\n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
+		dprintf("cursor right %d\n", a);
 		set_cursor(s, s->x + a, s->y);
 		if (s->x >= s->width)
 		    set_cursor(s, s->width - 1, s->y);
                 break;
             case 'D': /* cursor left */
-		dprintf("cursor left\n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
+		dprintf("cursor left %d\n", a);
 		set_cursor(s, s->x - a, s->y);
 		if (s->x < 0)
 		    set_cursor(s, 0, s->y);
                 break;
 	    case 'E': /* cursor down and to first column */
-		dprintf("cursor down and to first column \n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
+		dprintf("cursor down %d and to first column\n", a);
 		set_cursor(s, 0, s->y + a);
 		if (s->y > s->sr_bottom)
 		    set_cursor(s, 0, s->sr_bottom);
 		break;
 	    case 'F': /* cursor up and to first column */
-		dprintf("cursor up and to first column \n");
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
+		dprintf("cursor up %d and to first column\n", a);
 		set_cursor(s, 0, s->y - a);;
 		if (s->y < s->sr_top)
 		    set_cursor(s, 0, s->sr_top);
@@ -1770,19 +1769,18 @@ static void console_putchar(TextConsole *s, int ch)
 	    case '`': /* fallthrough */
 	    case 'G':
 		if (s->nb_esc_params == 1) {
-		    set_cursor(s, max(s->esc_params[0] - 1, 0), s->y);
+		    dprintf("set cursor x %d\n", s->esc_params[0]);
+		    set_cursor(s, s->esc_params[0], s->y);
+		    clip_x(s, x);
 		}
 		break;
 	    case 'f':
 	    case 'H': /* cursor possition */
 		x_ = y_ = 0;
-		switch(s->nb_esc_params) {
-			case 2 ... 99: /* two or more */
-				x_ = s->esc_params[1]-1;
-			case 1:
-				y_ = s->esc_params[0]-1;
-			break;
-		}
+		if (s->nb_esc_params > 1)
+		    x_ = s->esc_params[1] - 1;
+		if (s->nb_esc_params > 0)
+		    y_ = s->esc_params[0] - 1;
 		set_cursor(s, x_,  (s->origin_mode ? s->sr_top : 0) + y_);
 		clip_xy(s, x, y);
 		dprintf("cursor pos %d:%d\n", s->y, s->x);
@@ -1796,7 +1794,7 @@ static void console_putchar(TextConsole *s, int ch)
 			      s->sr_bottom - s->y + 1);
 			break;
 		    case 1: /* erase from start to cursor */
-			clear(s, 0, s->sr_top, s->x, s->y - s->sr_top + 1);
+			clear(s, 0, s->sr_top, s->x + 1, s->y - s->sr_top + 1);
 			break;
 		    case 2: /* erase whole display */
 			clear(s, 0, s->sr_top, s->width,
