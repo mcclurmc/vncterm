@@ -91,6 +91,8 @@ set_fd_handler(int fd, int (*fd_read_poll)(void *), void (*fd_read)(void *),
     (*pioh)->fd_write = fd_write;
     (*pioh)->opaque = opaque;
     (*pioh)->enabled = (fd_read || fd_write);
+    if (!(*pioh)->enabled)
+	(*pioh)->pollfd = NULL;
     handlers_updated = 1;
     return 0;
 }
@@ -663,7 +665,9 @@ main(int argc, char **argv, char **envp)
 			    exit_when_all_disconnect=1;
 		    }
 		    ioh->enabled = 0;
+		    ioh->pollfd = NULL;
 		    handlers_updated = 1;
+		    continue;
 		}
 		if (revents & POLLOUT && ioh->fd_write)
 		    ioh->fd_write(ioh->opaque);
