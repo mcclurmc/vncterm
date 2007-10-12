@@ -2203,7 +2203,7 @@ void kbd_put_keysym(int keysym)
 	for (c = 0; c < q - buf; c++)
 	    dprintf("fchar %c %x\n", buf[c] > 0x1f ? buf[c] : ' ', buf[c]);
 
-	dprintf("write_or_chunk(%d, %ld)\n", s->input_stream.fd, q-buf);
+	dprintf("write_or_chunk(%d, %ld)\n", s->input_stream.fd, (long int)(q-buf));
 
 	if (s->input_stream.fd != -1)
 	    write_or_chunk(&s->input_stream, buf, q - buf);
