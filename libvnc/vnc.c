@@ -1896,34 +1896,6 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
 	return 0;
 }
 
-int vnc_start_viewer(int port)
-{
-    int pid, i, open_max;
-    char s[16];
-
-    sprintf(s, ":%d", port);
-
-    switch (pid = fork()) {
-    case -1:
-	fprintf(stderr, "vncviewer failed fork\n");
-	exit(1);
-
-    case 0:	/* child */
-	open_max = sysconf(_SC_OPEN_MAX);
-	for (i = 0; i < open_max; i++)
-	    if (i != STDIN_FILENO &&
-		i != STDOUT_FILENO &&
-		i != STDERR_FILENO)
-		close(i);
-	execlp("vncviewer", "vncviewer", s, NULL);
-	fprintf(stderr, "vncviewer execlp failed\n");
-	exit(1);
-
-    default:
-	return pid;
-    }
-}
-
 unsigned int seed;
 
 static int make_challenge(unsigned char *random, int size)
@@ -1951,27 +1923,4 @@ static void get_random(int len, unsigned char *buf)
 	buf[i] = (int) (256.0*rand()/(RAND_MAX+1.0));
 
     return;
-}
-
-void vnc_keymap_change(DisplayState *ds, char *keymap)
-{
-    VncState *vs = ds->opaque;
-    kbd_layout_t *new_layout;
-
-    if (!strcmp(keymap, vs->kbd_layout_name))
-        return;
-
-    new_layout = init_keyboard_layout(keymap);
-    if (!new_layout) {
-        fprintf(stderr, "Failed to initialise new keyboard layout\n");
-        return;
-    }
-
-    fprintf(stderr, "Initialise new keyboard layout %s\n", keymap);
-
-    free(vs->kbd_layout_name);
-    free_keyboard_layout(vs->kbd_layout);
-
-    vs->kbd_layout_name = strdup(keymap);
-    vs->kbd_layout = new_layout;
 }

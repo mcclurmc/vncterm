@@ -90,6 +90,7 @@ static kbd_layout_t *parse_keyboard_layout(const char *language,
 	k = qemu_mallocz(sizeof(kbd_layout_t));
     if (!k)
         return 0;
+    /* Only called at start-of-day, so doesn't need privsep */
     if (!(f = fopen(file_name, "r"))) {
 	fprintf(stderr,
 		"Could not read keymap file: '%s'\n", file_name);
@@ -161,11 +162,6 @@ static kbd_layout_t *parse_keyboard_layout(const char *language,
 static void *init_keyboard_layout(const char *language)
 {
     return parse_keyboard_layout(language, 0);
-}
-
-static void free_keyboard_layout(void *kbd_layout)
-{
-    return qemu_free(kbd_layout);
 }
 
 static int keysym2scancode(void *kbd_layout, int keysym)
