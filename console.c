@@ -2126,6 +2126,7 @@ static void prepare_console_maps()
 	qsort( consmap[i], 256, sizeof(unsigned int), cmputfents );
 }
 
+/* Not safe after we drop privileges */
 void dump_console_to_file(CharDriverState *chr, char *fn)
 {
     FILE* f;

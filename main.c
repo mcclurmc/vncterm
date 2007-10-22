@@ -8,6 +8,7 @@
 #else
 #include <util.h>
 #endif
+#include <pwd.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,7 +26,6 @@
 
 #ifndef NXENSTORE
 #include <xs.h>
-static struct xs_handle *xs;
 #endif
 
 #if !defined(__APPLE__)
@@ -211,6 +211,7 @@ process_read(void *opaque)
 	p->console->chr_write(p->console, buf, count);
 }
 
+/* Not safe after we've dropped privileges */
 struct process *
 run_process(CharDriverState *console, const char *filename,
 	    char *const argv[], char *const envp[])
@@ -295,6 +296,7 @@ connect_pty(char *pty_path, CharDriverState *console)
     pty = malloc(sizeof(struct pty));
     if (pty == NULL)
 	err(1, "malloc");
+    /* Only called at start of day, so doesn't need privsep */
     pty->fd = open(pty_path, O_RDWR | O_NOCTTY);
     if (pty->fd == -1)
 	err(1, "open");
@@ -315,9 +317,8 @@ struct vncterm
 
 #ifndef NXENSTORE
 void
-read_xs_watch(void *opaque)
+read_xs_watch(struct xs_handle *xs, struct vncterm *vncterm)
 {
-    struct vncterm *vncterm = opaque;
     char **vec, *pty_path = NULL;
     unsigned int num;
 
@@ -368,6 +369,7 @@ main(int argc, char **argv, char **envp)
     int restart_needed = 1;
     int cmd_mode = 0;
     int exit_when_all_disconnect = 0;
+    int stay_root = 0;
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -391,16 +393,21 @@ main(int argc, char **argv, char **envp)
 	    {"title", 1, 0, 't'},
 	    {"xenstore", 1, 0, 'x'},
 	    {"vnclisten", 1, 0, 'v'},
+            {"stay-root", 0, 0, 'S'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+cp:rst:x:v:", long_options, NULL);
+	c = getopt_long(argc, argv, "+cp:rst:x:v:S", long_options, NULL);
 	if (c == -1)
 	    break;
 
 	switch (c) {
 	case 'c':
 	    cmd_mode = 1;
+            /* We sometimes re-exec ourselves when run in cmd mode,
+               and expect to have root when we come back.  We
+               therefore can't drop privileges in command mode. */
+            stay_root = 1;
 	    break;
 	case 'p':
 	    pty_path = strdup(optarg);
@@ -414,6 +421,9 @@ main(int argc, char **argv, char **envp)
 	case 't':
 	    title = strdup(optarg);
 	    break;
+        case 'S':
+            stay_root = 1;
+            break;
 	case 'x':
 #ifndef NXENSTORE
 	    xenstore_path = strdup(optarg);
@@ -468,6 +478,7 @@ main(int argc, char **argv, char **envp)
 
     if (xenstore_path) {
 	char *path, *port;
+        struct xs_handle *xs;
 
 	xs = xs_daemon_open();
 	if (xs == NULL)
@@ -493,8 +504,12 @@ main(int argc, char **argv, char **envp)
 	    ret = xs_watch(xs, vncterm->xenstore_path, "tty");
 	    if (!ret)
 		err(1, "xs_watch");
-	    set_fd_handler(xs_fileno(xs), NULL, read_xs_watch, NULL, vncterm);
+
+            while (vncterm->pty == NULL)
+                read_xs_watch(xs, vncterm);
 	}
+
+        xs_daemon_close(xs);
     }
     else /* fallthrough */
 #endif
@@ -525,12 +540,30 @@ main(int argc, char **argv, char **envp)
 	    argv += optind;
 	    argc -= optind;
 	}
+
+        stay_root = 1;
     }
 
     if (pty_path)
 	vncterm->pty = connect_pty(pty_path, vncterm->console);
 
-    signal(SIGUSR1, handle_sigusr1);
+    if (stay_root) {
+        warnx("not dropping root privileges");
+    } else {
+        struct passwd *pw;
+        pw = getpwnam("nobody");
+        if (!pw)
+            err(1, "getting uid/gid for nobody");
+
+        chdir("/var/empty");
+        chroot("/var/empty");
+
+        setgid(pw->pw_gid);
+        setuid(pw->pw_uid);
+    }
+
+    if (stay_root)
+        signal(SIGUSR1, handle_sigusr1);
     signal(SIGUSR2, handle_sigusr2);
     signal(SIGCHLD, handle_sigchld);
 
