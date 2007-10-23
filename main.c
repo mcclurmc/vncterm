@@ -548,7 +548,7 @@ main(int argc, char **argv, char **envp)
 	vncterm->pty = connect_pty(pty_path, vncterm->console);
 
     if (stay_root) {
-        warnx("not dropping root privileges");
+        /* warnx("not dropping root privileges"); */
     } else {
         struct passwd *pw;
         pw = getpwnam("nobody");
