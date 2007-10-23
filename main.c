@@ -551,7 +551,7 @@ main(int argc, char **argv, char **envp)
         /* warnx("not dropping root privileges"); */
     } else {
         struct passwd *pw;
-        pw = getpwnam("nobody");
+        pw = getpwnam("vncterm");
         if (!pw)
             err(1, "getting uid/gid for nobody");
 
