@@ -553,7 +553,7 @@ main(int argc, char **argv, char **envp)
         struct passwd *pw;
         pw = getpwnam("vncterm_base");
         if (!pw)
-            err(1, "getting uid/gid for domain_base");
+            err(1, "getting uid/gid for vncterm_base");
 
         chdir("/var/empty");
         chroot("/var/empty");
