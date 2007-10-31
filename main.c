@@ -551,15 +551,15 @@ main(int argc, char **argv, char **envp)
         /* warnx("not dropping root privileges"); */
     } else {
         struct passwd *pw;
-        pw = getpwnam("vncterm");
+        pw = getpwnam("vncterm_base");
         if (!pw)
-            err(1, "getting uid/gid for nobody");
+            err(1, "getting uid/gid for domain_base");
 
         chdir("/var/empty");
         chroot("/var/empty");
 
-        setgid(pw->pw_gid);
-        setuid(pw->pw_uid);
+        setgid(pw->pw_gid + (unsigned short)display);
+        setuid(pw->pw_uid + (unsigned short)display);
     }
 
     if (stay_root)
