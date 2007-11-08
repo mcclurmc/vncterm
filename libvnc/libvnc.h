@@ -43,6 +43,7 @@ struct DisplayState {
 
     int (*set_fd_handler)(int, int (*)(void *), void (*)(void *),
 			  void (*)(void *), void *);
+    int (*set_fd_error_handler)(int, void (*)(void *));
 };
 typedef struct DisplayState DisplayState;
 
