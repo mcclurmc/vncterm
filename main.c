@@ -344,6 +344,35 @@ read_xs_watch(struct xs_handle *xs, struct vncterm *vncterm)
 #endif
 
 int
+vnc_start_viewer(int port, char* name)
+{
+    int pid, i, open_max;
+    char s[16];
+
+    sprintf(s, ":%d", port);
+
+    switch (pid = fork()) {
+    case -1:
+	fprintf(stderr, "vncviewer failed fork\n");
+	exit(1);
+
+    case 0:	/* child */
+	open_max = sysconf(_SC_OPEN_MAX);
+	for (i = 0; i < open_max; i++)
+	    if (i != STDIN_FILENO &&
+		i != STDOUT_FILENO &&
+		i != STDERR_FILENO)
+		close(i);
+        execlp("vncviewer", "vncviewer", s, "-name", name, NULL);
+	fprintf(stderr, "vncviewer execlp failed\n");
+	exit(1);
+
+    default:
+	return pid;
+    }
+}
+
+int
 main(int argc, char **argv, char **envp)
 {
     DisplayState *ds;
@@ -370,6 +399,7 @@ main(int argc, char **argv, char **envp)
     int cmd_mode = 0;
     int exit_when_all_disconnect = 0;
     int stay_root = 0;
+    int vncviewer = 0;
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -394,10 +424,11 @@ main(int argc, char **argv, char **envp)
 	    {"xenstore", 1, 0, 'x'},
 	    {"vnclisten", 1, 0, 'v'},
             {"stay-root", 0, 0, 'S'},
+            {"vncviewer", 0, 0, 'V'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+cp:rst:x:v:S", long_options, NULL);
+	c = getopt_long(argc, argv, "+cp:rst:x:v:SV", long_options, NULL);
 	if (c == -1)
 	    break;
 
@@ -432,6 +463,8 @@ main(int argc, char **argv, char **envp)
 	case 'v':
 	    vnclisten = strdup(optarg);
 	    break;
+	case 'V':
+	    vncviewer = 1;
 	}
     }
 
@@ -455,7 +488,15 @@ main(int argc, char **argv, char **envp)
     display = vnc_display_init(ds, (struct sockaddr *)&sa, 1, title, NULL, 
 		COLS * FONTW, LINES * FONTH );
     vncterm->console = text_console_init(ds);
-
+    
+    if (vncviewer == 1)
+    {
+        char name[50];
+        char* vmuuid = getenv("VMUUID");
+        strcpy(name, "vncterm-");
+        strncat(name, vmuuid, 37);
+        vnc_start_viewer(display, name);
+    }
 #if 0
     {
 	char *msg = "Hello World\n\r";
