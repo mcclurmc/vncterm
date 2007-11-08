@@ -364,8 +364,7 @@ vnc_start_viewer(int port, char* name)
 		i != STDERR_FILENO)
 		close(i);
         execlp("vncviewer", "vncviewer", s, "-name", name, NULL);
-	fprintf(stderr, "vncviewer execlp failed\n");
-	exit(1);
+	err(1);
 
     default:
 	return pid;
