@@ -831,8 +831,10 @@ static int vnc_client_io_error(struct VncClientState *vcs, int ret,
     return 0;
 }
 
-static void vnc_client_error(struct VncClientState *vcs)
+static void vnc_client_error(void *opaque)
 {
+    struct VncClientState *vcs = opaque;
+
     vnc_client_io_error(vcs, -1, EINVAL);
 }
 
@@ -1768,6 +1770,7 @@ static void vnc_listen_read(void *opaque)
     vcs->csock = new_sock;
     socket_set_nonblock(vcs->csock);
     vs->ds->set_fd_handler(vcs->csock, NULL, vnc_client_read, NULL, opaque);
+    vs->ds->set_fd_error_handler(vcs->csock, vnc_client_error);
     dprintf("rfb greeting\n");
     vnc_write(vcs, "RFB 003.003\n", 12);
     vnc_flush(vcs);

@@ -57,6 +57,7 @@ struct iohandler {
     int fd;
     void (*fd_read)(void *);
     void (*fd_write)(void *);
+    void (*fd_error)(void *);
     void *opaque;
     int enabled;
 #ifdef USE_POLL
@@ -91,9 +92,27 @@ set_fd_handler(int fd, int (*fd_read_poll)(void *), void (*fd_read)(void *),
     (*pioh)->fd_write = fd_write;
     (*pioh)->opaque = opaque;
     (*pioh)->enabled = (fd_read || fd_write);
-    if (!(*pioh)->enabled)
+    if (!(*pioh)->enabled) {
 	(*pioh)->pollfd = NULL;
+	(*pioh)->fd_error = NULL;
+    }
     handlers_updated = 1;
+    return 0;
+}
+
+int
+set_fd_error_handler(int fd, void (*fd_error)(void *))
+{
+    struct iohandler **pioh = &iohandlers;
+
+    while (*pioh) {
+	if ((*pioh)->fd == fd)
+	    break;
+	pioh = &(*pioh)->next;
+    }
+    if (*pioh == NULL)
+	return 1;
+    (*pioh)->fd_error = fd_error;
     return 0;
 }
 
@@ -470,6 +489,7 @@ main(int argc, char **argv, char **envp)
     ds = &display_state;
     memset(ds, 0, sizeof(display_state));
     ds->set_fd_handler = set_fd_handler;
+    ds->set_fd_error_handler = set_fd_error_handler;
     ds->init_timer = init_timer;
     ds->get_clock = get_clock;
     ds->set_timer = set_timer;
@@ -737,6 +757,8 @@ main(int argc, char **argv, char **envp)
 			else if (exit_on_eof)
 			    exit_when_all_disconnect=1;
 		    }
+		    if (ioh->fd_error)
+			ioh->fd_error(ioh->opaque);
 		    ioh->enabled = 0;
 		    ioh->pollfd = NULL;
 		    handlers_updated = 1;
