@@ -752,6 +752,7 @@ main(int argc, char **argv, char **envp)
 		    continue;
 		if (revents & (POLLERR|POLLHUP|POLLNVAL)) {
 		    if (ioh->fd == console_input_fd(vncterm->console)) {
+                ds->dpy_close_vncviewer_connections(ds);
 			if (restart)
 			    restart_needed = 1;
 			else if (exit_on_eof)

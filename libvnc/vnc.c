@@ -104,6 +104,7 @@ struct VncClientState
 {
     struct VncState *vs;
     int csock;
+    int isvncviewer;
     Buffer output;
     Buffer input;
 
@@ -1697,6 +1698,12 @@ static int protocol_version(struct VncClientState *vcs, uint8_t *version,
     local[12] = 0;
 
     /* protocol version check */
+    if (strncmp("VNC", local, 3) == 0) {
+        local[0]='R';
+        local[1]='F';
+        local[2]='B';
+        vcs->isvncviewer = 1;
+    }
     if (sscanf(local, "RFB %03d.%03d\n", &maj, &min) != 2) {
 	fprintf(stderr, "Protocol version error.\n");
 	vnc_client_error(vcs);
@@ -1768,6 +1775,7 @@ static void vnc_listen_read(void *opaque)
     vcs->vs = vs;
     vcs->vpm.vpm_region_updates_last = &vcs->vpm.vpm_region_updates;
     vcs->csock = new_sock;
+    vcs->isvncviewer = 0;
     socket_set_nonblock(vcs->csock);
     vs->ds->set_fd_handler(vcs->csock, NULL, vnc_client_read, NULL, opaque);
     vs->ds->set_fd_error_handler(vcs->csock, vnc_client_error);
@@ -1786,6 +1794,18 @@ static void vnc_listen_read(void *opaque)
  fail:
     closesocket(new_sock);
     return;
+}
+
+static void vnc_dpy_close_vncviewer_connections(DisplayState *ds)
+{
+    int i;
+    VncState *vs = ds->opaque;
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        if (!VCS_INUSE(vs->vcs[i])) continue;
+        else if(vs->vcs[i]->isvncviewer == 1) {
+            vnc_client_io_error(vs->vcs[i], -1, EINVAL);
+        }
+    }
 }
 
 int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
@@ -1836,6 +1856,7 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
     vs->ds->dpy_bell = vnc_send_bell;
     vs->ds->dpy_copy_rect = vnc_dpy_copy_rect;
     vs->ds->dpy_clients_connected = vnc_dpy_clients_connected;
+    vs->ds->dpy_close_vncviewer_connections = vnc_dpy_close_vncviewer_connections;
 
     vnc_dpy_resize(vs->ds, width, height);
 
