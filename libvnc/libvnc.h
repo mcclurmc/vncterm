@@ -22,7 +22,8 @@ struct DisplayState {
     void (*dpy_set_server_text)(struct DisplayState *s, char *text);
     void (*dpy_bell)(struct DisplayState *s);
     void (*dpy_copy_rect)(struct DisplayState *ds, int xf, int yf, int xt, int yt, int w, int h);
-
+    
+    void (*dpy_close_vncviewer_connections)(struct DisplayState *ds);
     unsigned char (*dpy_clients_connected)(struct DisplayState *ds);
 
     void *hw_opaque;
