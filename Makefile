@@ -1,5 +1,4 @@
 TARGET = vncterm
-LD_LIBRARY_PATH = /kaball/xensource/build.hg/obj/chroot-dom0-env/usr/lib
 
 OBJS := main.o console.o
 
@@ -9,7 +8,7 @@ LIBS := libvnc/libvnc.a
 CFLAGS  = -I$(shell pwd)/include
 # _GNU_SOURCE for asprintf.
 CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE 
-CFLAGS += -Wall -Werror -g -O1 -I/kaball/xensource/build.hg/obj/chroot-dom0-env/usr/include
+CFLAGS += -Wall -Werror -g -O1 
 
 ifeq ($(shell uname),Linux)
 LDLIBS := -lutil
@@ -27,7 +26,7 @@ CFLAGS   += -Wp,-MD,$(@D)/.$(@F).d
 SUBDIRS  = $(filter-out ./,$(dir $(OBJS) $(LIBS)))
 DEPS     = .*.d
 
-LDFLAGS := -g -L/kaball/xensource/build.hg/obj/chroot-dom0-env/usr/lib
+LDFLAGS := -g 
 
 all: $(TARGET)
 
