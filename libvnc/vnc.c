@@ -432,7 +432,7 @@ static void vnc_write_pixels_copy(struct VncClientState *vcs, void *pixels,
 }
 
 /* slowest but generic code. */
-static void vnc_convert_pixel32(struct VncClientState *vcs, uint8_t *buf,
+static void vnc_convert_pixel(struct VncClientState *vcs, uint8_t *buf,
                   uint32_t v)
 {
     uint8_t r, g, b;
@@ -443,84 +443,6 @@ static void vnc_convert_pixel32(struct VncClientState *vcs, uint8_t *buf,
     case 1:
         buf[0] = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
         break;
-    case 2:
-    {
-        uint16_t *p = (uint16_t *) buf;
-        *p = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
-        if (vcs->pix_big_endian) {
-            *p = htons(*p);
-        }
-    }
-        break;
-    default:
-    case 4:
-        if (vcs->pix_big_endian) {
-            buf[0] = r;
-            buf[1] = g;
-            buf[2] = b;
-            buf[3] = v >> 24;
-        } else {
-            buf[3] = r;
-            buf[2] = g;
-            buf[1] = b;
-            buf[0] = v >> 24;
-        }
-        break;
-    }
-}
-
-static void vnc_convert_pixel16(struct VncClientState *vcs, uint8_t *buf,
-                  uint16_t v)
-{
-    uint8_t r, g, b;
-    r = ((v >> vcs->red_shift1) & vcs->red_max1) * (vcs->red_max + 1) / (vcs->red_max1 + 1);
-    g = ((v >> vcs->green_shift1) & vcs->green_max1) * (vcs->green_max + 1) / (vcs->green_max1 + 1);
-    b = ((v >> vcs->blue_shift1) & vcs->blue_max1) * (vcs->blue_max + 1) / (vcs->blue_max1 + 1);
-    switch(vcs->pix_bpp) {
-    case 1:
-    {
-        buf[0] = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
-        break;
-    }
-    case 2:
-    {
-        uint16_t *p = (uint16_t *) buf;
-        *p = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
-        if (vcs->pix_big_endian) {
-            *p = htons(*p);
-        }
-    }
-        break;
-    default:
-    case 4:
-        if (vcs->pix_big_endian) {
-            buf[0] = 255;
-            buf[1] = r;
-            buf[2] = g;
-            buf[3] = b;
-        } else {
-            buf[0] = b;
-            buf[1] = g;
-            buf[2] = r;
-            buf[3] = 255;
-        }
-        break;
-    }
-}
-
-static void vnc_convert_pixel8(struct VncClientState *vcs, uint8_t *buf,
-                  uint8_t v)
-{
-    uint8_t r, g, b;
-    r = ((v >> vcs->red_shift1) & vcs->red_max1) * (vcs->red_max + 1) / (vcs->red_max1 + 1);
-    g = ((v >> vcs->green_shift1) & vcs->green_max1) * (vcs->green_max + 1) / (vcs->green_max1 + 1);
-    b = ((v >> vcs->blue_shift1) & vcs->blue_max1) * (vcs->blue_max + 1) / (vcs->blue_max1 + 1);
-    switch(vcs->pix_bpp) {
-    case 1:
-    {
-        buf[0] = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
-        break;
-    }
     case 2:
     {
         uint16_t *p = (uint16_t *) buf;
@@ -557,7 +479,7 @@ static void vnc_write_pixels_generic(struct VncClientState *vcs,
         int n, i;
         n = size >> 2;
         for(i = 0; i < n; i++) {
-            vnc_convert_pixel32(vcs, buf, pixels[i]);
+            vnc_convert_pixel(vcs, buf, pixels[i]);
             vnc_write(vcs, buf, vcs->pix_bpp);
         }
     } else if (vcs->vs->depth == 2) {
@@ -565,7 +487,7 @@ static void vnc_write_pixels_generic(struct VncClientState *vcs,
         int n, i;
         n = size >> 1;
         for(i = 0; i < n; i++) {
-            vnc_convert_pixel16(vcs, buf, pixels[i]);
+            vnc_convert_pixel(vcs, buf, pixels[i]);
             vnc_write(vcs, buf, vcs->pix_bpp);
         }
     } else if (vcs->vs->depth == 1) {
@@ -573,7 +495,7 @@ static void vnc_write_pixels_generic(struct VncClientState *vcs,
         int n, i;
         n = size;
         for(i = 0; i < n; i++) {
-            vnc_convert_pixel8(vcs, buf, pixels[i]);
+            vnc_convert_pixel(vcs, buf, pixels[i]);
             vnc_write(vcs, buf, vcs->pix_bpp);
         }
     } else {
@@ -600,36 +522,78 @@ unsigned char cursorbmsk[16] = {
 	0xff, /* 11111111 */
 };
 
-#define SETONE(A) *cur++ = (A)
-#define SETFOUR(A) do { SETONE(A); SETONE(A); SETONE(A); SETONE(0); } while (0)
+static void writeGrey(int depth, unsigned char **cur)
+{
+    switch(depth) {
+        case 1:
+            **cur = 0xb6;
+            *cur = *cur + 1; 
+        break;
+        case 2:
+        {
+            uint16_t *p = (uint16_t*) *cur;
+            *p = 0xc618;
+            *cur = *cur + 2;
+        }
+        break;
+        case 4:
+        {
+            uint32_t *p = (uint32_t*) *cur;
+            *p = 0xc0c0c000;
+            *cur = *cur + 4;
+        }  
+        break;
+    }
+}
+
+static void writeZero(int depth, unsigned char **cur)
+{
+    switch(depth) {
+        case 1:
+            **cur = 0x00;
+            *cur = *cur + 1; 
+        break;
+        case 2:
+        {
+            uint16_t *p = (uint16_t*) *cur;
+            *p = 0x0000;
+            *cur = *cur + 2;
+        }
+        break;
+        case 4:
+        {
+            uint32_t *p = (uint32_t*) *cur;
+            *p = 0x00000000;
+            *cur = *cur + 4;
+        }  
+        break;
+    }
+}
 
 static void vnc_send_custom_cursor(struct VncClientState *vcs)
 {
-    uint32_t *cursorcur;
-    unsigned char *cur;
+    unsigned char *cursorcur, *cur;
     unsigned int size, i, j;
-    const unsigned char grayshade = 0xc0;
-    uint8_t buf[4];
-    
+     
     if (vcs->has_cursor_encoding != 1)
     return;
 
     dprintf("sending custom cursor %d with bpp %d\n", vcs->csock,
         vcs->pix_bpp);
-    size = sizeof(cursorbmsk) * 8;
-    cursorcur = (uint32_t*) malloc(size * 4);
+    size = sizeof(cursorbmsk) * 8 * vcs->pix_bpp;
+    cursorcur = malloc(size);
     if (cursorcur == NULL)
     return;
 
     cur = (unsigned char *) cursorcur;
 
     for (i = 0; i < sizeof(cursorbmsk); i++) {
-    for (j = 0; j < 8; j++) {
-        if (cursorbmsk[i] & (1 << (8 - j)))
-        SETFOUR(grayshade);
-        else
-        SETFOUR(0);
-    }
+        for (j = 0; j < 8; j++) {
+            if (cursorbmsk[i] & (1 << (8 - j)))
+                writeGrey(vcs->pix_bpp, &cur);
+            else
+                writeZero(vcs->pix_bpp, &cur);
+        }
     }
 
     vnc_write_u16(vcs, 0);
@@ -637,11 +601,8 @@ static void vnc_send_custom_cursor(struct VncClientState *vcs)
 
     /* width 8, height - number of bytes in mask, hotspot in the middle */
     vnc_framebuffer_update(vcs, 8 / 2, sizeof(cursorbmsk) / 2, 8,
-               sizeof(cursorbmsk), -239);      
-    for(i = 0; i < size; i++) {
-        vnc_convert_pixel32(vcs, buf, cursorcur[i]);
-        vnc_write(vcs, buf, vcs->pix_bpp);
-    }
+               sizeof(cursorbmsk), -239);
+    vnc_write_pixels_copy(vcs, cursorcur, size);
     vnc_write(vcs, cursorbmsk, sizeof(cursorbmsk));
 
     free(cursorcur);
