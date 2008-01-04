@@ -3,7 +3,6 @@
 #define pixel_t CONCAT(uint, CONCAT(BPP, _t))
 #ifdef GENERIC
 #define NAME CONCAT(generic_, BPP)
-#define CONVERT CONCAT(vnc_convert_pixel, BPP)
 #else
 #define NAME BPP
 #endif
@@ -133,7 +132,7 @@ static void CONCAT(send_hextile_tile_, NAME)(struct VncClientState *vcs,
 		} else if (irow[i] != color) {
 		    has_color = 0;
 #ifdef GENERIC
-            CONVERT(vcs, pdata + n_pdata, color);
+            vnc_convert_pixel(vcs, pdata + n_pdata, color);
             n_pdata += vcs->pix_bpp;
 #else
 	        memcpy(pdata + n_pdata, &color, sizeof(color));
@@ -153,7 +152,7 @@ static void CONCAT(send_hextile_tile_, NAME)(struct VncClientState *vcs,
 	    }
 	    if (has_color) {
 #ifdef GENERIC
-        CONVERT(vcs, pdata + n_pdata, color);
+        vnc_convert_pixel(vcs, pdata + n_pdata, color);
         n_pdata += vcs->pix_bpp;
 #else
         memcpy(pdata + n_pdata, &color, sizeof(color));
