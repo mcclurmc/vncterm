@@ -2,7 +2,8 @@
 #define CONCAT(a, b) CONCAT_I(a, b)
 #define pixel_t CONCAT(uint, CONCAT(BPP, _t))
 #ifdef GENERIC
-#define NAME generic
+#define NAME CONCAT(generic_, BPP)
+#define CONVERT CONCAT(vnc_convert_pixel, BPP)
 #else
 #define NAME BPP
 #endif
@@ -10,22 +11,22 @@
 static void CONCAT(send_hextile_tile_, NAME)(struct VncClientState *vcs,
                                              uint8_t *data, int stride,
                                              int w, int h,
-                                             uint32_t *last_bg32, 
-                                             uint32_t *last_fg32,
+                                             void *last_bg_, 
+                                             void *last_fg_,
                                              int *has_bg, int *has_fg)
 {
     struct VncState *vs = vcs->vs;
     pixel_t *irow = (pixel_t *)data;
     int j, i;
-    pixel_t *last_bg = (pixel_t *)last_bg32;
-    pixel_t *last_fg = (pixel_t *)last_fg32;
+    pixel_t *last_bg = (pixel_t *)last_bg_;
+    pixel_t *last_fg = (pixel_t *)last_fg_;
     pixel_t bg = 0;
     pixel_t fg = 0;
     int n_colors = 0;
     int bg_count = 0;
     int fg_count = 0;
     int flags = 0;
-    uint8_t pdata[(sizeof(pixel_t) + 2) * 16 * 16];
+    uint8_t pdata[(vcs->pix_bpp + 2) * 16 * 16];
     int n_pdata = 0;
     int n_subtiles = 0;
 
@@ -132,11 +133,11 @@ static void CONCAT(send_hextile_tile_, NAME)(struct VncClientState *vcs,
 		} else if (irow[i] != color) {
 		    has_color = 0;
 #ifdef GENERIC
-                    vnc_convert_pixel(vcs, pdata + n_pdata, color);
-                    n_pdata += vcs->pix_bpp;
+            CONVERT(vcs, pdata + n_pdata, color);
+            n_pdata += vcs->pix_bpp;
 #else
-		    memcpy(pdata + n_pdata, &color, sizeof(color));
-                    n_pdata += sizeof(pixel_t);
+	        memcpy(pdata + n_pdata, &color, sizeof(color));
+            n_pdata += sizeof(pixel_t);
 #endif
 		    hextile_enc_cord(pdata + n_pdata, min_x, j, i - min_x, 1);
 		    n_pdata += 2;
@@ -144,19 +145,19 @@ static void CONCAT(send_hextile_tile_, NAME)(struct VncClientState *vcs,
 
 		    min_x = -1;
 		    if (irow[i] != bg) {
-			color = irow[i];
-			min_x = i;
-			has_color = 1;
+    			color = irow[i];
+    			min_x = i;
+    			has_color = 1;
 		    }
 		}
 	    }
 	    if (has_color) {
 #ifdef GENERIC
-                vnc_convert_pixel(vcs, pdata + n_pdata, color);
-                n_pdata += vcs->pix_bpp;
+        CONVERT(vcs, pdata + n_pdata, color);
+        n_pdata += vcs->pix_bpp;
 #else
-                memcpy(pdata + n_pdata, &color, sizeof(color));
-                n_pdata += sizeof(pixel_t);
+        memcpy(pdata + n_pdata, &color, sizeof(color));
+        n_pdata += sizeof(pixel_t);
 #endif
 		hextile_enc_cord(pdata + n_pdata, min_x, j, i - min_x, 1);
 		n_pdata += 2;
