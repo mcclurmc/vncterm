@@ -522,52 +522,49 @@ unsigned char cursorbmsk[16] = {
 	0xff, /* 11111111 */
 };
 
-static void writeGrey(int depth, unsigned char **cur)
+static void writeGrey(struct VncClientState *vcs, unsigned char **cur)
 {
-    switch(depth) {
-        case 1:
-            **cur = 0xb6;
-            *cur = *cur + 1; 
+    uint8_t r, g, b;
+    r = (0xc0) * (vcs->red_max + 1) / (256);
+    g = (0xc0) * (vcs->green_max + 1) / (256);
+    b = (0xc0) * (vcs->blue_max + 1) / (256);
+    switch(vcs->pix_bpp) {
+    case 1:
+        **cur = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
+        *cur = *cur + 1;
         break;
-        case 2:
-        {
-            uint16_t *p = (uint16_t*) *cur;
-            *p = 0xc618;
-            *cur = *cur + 2;
+    case 2:
+    {
+        uint16_t *p = (uint16_t *) *cur;
+        *p = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
+        if (vcs->pix_big_endian) {
+            *p = htons(*p);
         }
+        *cur = *cur + 2;
+    }
         break;
-        case 4:
-        {
-            uint32_t *p = (uint32_t*) *cur;
-            *p = 0xc0c0c000;
-            *cur = *cur + 4;
-        }  
+    default:
+    case 4:
+        if (vcs->pix_big_endian) {
+            (*cur)[0] = 255;
+            (*cur)[1] = r;
+            (*cur)[2] = g;
+            (*cur)[3] = b;
+        } else {
+            (*cur)[0] = b;
+            (*cur)[1] = g;
+            (*cur)[2] = r;
+            (*cur)[3] = 255;
+        }
+        *cur = *cur + 4;
         break;
     }
 }
 
-static void writeZero(int depth, unsigned char **cur)
+static void writeZero(struct VncClientState *vcs, unsigned char **cur)
 {
-    switch(depth) {
-        case 1:
-            **cur = 0x00;
-            *cur = *cur + 1; 
-        break;
-        case 2:
-        {
-            uint16_t *p = (uint16_t*) *cur;
-            *p = 0x0000;
-            *cur = *cur + 2;
-        }
-        break;
-        case 4:
-        {
-            uint32_t *p = (uint32_t*) *cur;
-            *p = 0x00000000;
-            *cur = *cur + 4;
-        }  
-        break;
-    }
+    memset(*cur, 0x00, vcs->pix_bpp);
+    *cur = *cur + vcs->pix_bpp;
 }
 
 static void vnc_send_custom_cursor(struct VncClientState *vcs)
@@ -590,9 +587,9 @@ static void vnc_send_custom_cursor(struct VncClientState *vcs)
     for (i = 0; i < sizeof(cursorbmsk); i++) {
         for (j = 0; j < 8; j++) {
             if (cursorbmsk[i] & (1 << (8 - j)))
-                writeGrey(vcs->pix_bpp, &cur);
+                writeGrey(vcs, &cur);
             else
-                writeZero(vcs->pix_bpp, &cur);
+                writeZero(vcs, &cur);
         }
     }
 
@@ -1513,12 +1510,6 @@ static void set_pixel_format(struct VncClientState *vcs,
             bits_per_pixel != 16 &&
             bits_per_pixel != 32)
             goto fail;
-        vcs->red_shift = red_shift;
-        vcs->red_max = red_max;
-        vcs->green_shift = green_shift;
-        vcs->green_max = green_max;
-        vcs->blue_shift = blue_shift;
-        vcs->blue_max = blue_max;
         if (vcs->vs->depth == 4) {
             vcs->red_shift1 = 16;
             vcs->green_shift1 = 8;
@@ -1540,6 +1531,12 @@ static void set_pixel_format(struct VncClientState *vcs,
         dprintf("set pixel format bpp %d depth %d generic\n", bits_per_pixel,
                 vs->depth);
     }
+    vcs->red_shift = red_shift;
+    vcs->red_max = red_max;
+    vcs->green_shift = green_shift;
+    vcs->green_max = green_max;
+    vcs->blue_shift = blue_shift;
+    vcs->blue_max = blue_max;
     vcs->pix_bpp = bits_per_pixel / 8;
     vnc_dpy_resize(vs->ds, vs->ds->width, vs->ds->height);
 
