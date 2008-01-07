@@ -363,12 +363,9 @@ read_xs_watch(struct xs_handle *xs, struct vncterm *vncterm)
 #endif
 
 int
-vnc_start_viewer(int port, char* name)
+vnc_start_viewer(char** opts)
 {
     int pid, i, open_max;
-    char s[16];
-
-    sprintf(s, ":%d", port);
 
     switch (pid = fork()) {
     case -1:
@@ -382,7 +379,7 @@ vnc_start_viewer(int port, char* name)
 		i != STDOUT_FILENO &&
 		i != STDERR_FILENO)
 		close(i);
-        execlp("vncviewer", "vncviewer", s, "-name", name, NULL);
+        execvp("/usr/bin/vncviewer", opts);
 	err(1, "vncviewer execlp failed\n");
 
     default:
@@ -411,6 +408,7 @@ main(int argc, char **argv, char **envp)
     char *xenstore_path = NULL;
 #endif
     char *vnclisten = NULL;
+    char *vncvieweroptions = NULL;
     int exit_on_eof = 1;
     int restart = 0;
     int restart_needed = 1;
@@ -441,12 +439,12 @@ main(int argc, char **argv, char **envp)
 	    {"title", 1, 0, 't'},
 	    {"xenstore", 1, 0, 'x'},
 	    {"vnclisten", 1, 0, 'v'},
-            {"stay-root", 0, 0, 'S'},
-            {"vncviewer", 0, 0, 'V'},
+        {"stay-root", 0, 0, 'S'},
+        {"vncviewer", 2, 0, 'V'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+cp:rst:x:v:SV", long_options, NULL);
+	c = getopt_long(argc, argv, "+cp:rst:x:v:SV::", long_options, NULL);
 	if (c == -1)
 	    break;
 
@@ -483,6 +481,9 @@ main(int argc, char **argv, char **envp)
 	    break;
 	case 'V':
 	    vncviewer = 1;
+        if (optarg != NULL)
+            vncvieweroptions = strdup(optarg);
+        break;
 	}
     }
 
@@ -508,13 +509,51 @@ main(int argc, char **argv, char **envp)
 		COLS * FONTW, LINES * FONTH );
     vncterm->console = text_console_init(ds);
     
-    if (vncviewer == 1)
-    {
+    if (vncviewer == 1) {
+        int i, l = 0;
+        int count = 0;
+        char **opts;
+        char* vmuuid;
         char name[50];
-        char* vmuuid = getenv("VMUUID");
+        char port[10];
+
+        if (vncvieweroptions != NULL) {
+            l = strlen(vncvieweroptions);
+            for (i = 0; i < l; i++) {
+                if (vncvieweroptions[i] == ';') {
+                    count++;
+                }
+            }
+            count++;
+        }
+        count = count + 5;
+        opts = (char **) malloc (count * sizeof(char*));
+        opts[0] = "vncviewer";
+        count = 1;
+        if (vncvieweroptions != NULL) {
+            opts[count] = vncvieweroptions;
+            count++; 
+            for (i = 0; i < l; i++) {
+                if (vncvieweroptions[i] == ';') {
+                    vncvieweroptions[i] = '\0';
+                    opts[count] = (char *) (vncvieweroptions + i + 1);
+                    count++;
+                }
+            }
+        }
+        sprintf(port, ":%d", display);
+        opts[count] = port;
+        count++;
+        opts[count] = "-name";
+        count++;
+        vmuuid = getenv("VMUUID");
         strcpy(name, "vncterm-");
         strncat(name, vmuuid, 37);
-        vnc_start_viewer(display, name);
+        opts[count] = name;
+        count++;
+        opts[count] = NULL;
+        vnc_start_viewer(opts);
+        free(opts);
     }
 #if 0
     {
