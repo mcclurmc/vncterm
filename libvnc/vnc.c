@@ -1442,6 +1442,9 @@ static void set_encodings(struct VncClientState *vcs, int32_t *encodings,
 	case -239: /* Cursor Pseud-Encoding */
 	    vcs->has_cursor_encoding = 1;
 	    break;
+    case -255: /* vncviewer client */
+        vcs->isvncviewer = 1;
+        break;
 	case -257:
 	    vcs->has_pointer_type_change = 1;
 	    break;
@@ -1768,12 +1771,6 @@ static int protocol_version(struct VncClientState *vcs, uint8_t *version,
     local[12] = 0;
 
     /* protocol version check */
-    if (strncmp("VNC", local, 3) == 0) {
-        local[0]='R';
-        local[1]='F';
-        local[2]='B';
-        vcs->isvncviewer = 1;
-    }
     if (sscanf(local, "RFB %03d.%03d\n", &maj, &min) != 2) {
 	fprintf(stderr, "Protocol version error.\n");
 	vnc_client_error(vcs);
