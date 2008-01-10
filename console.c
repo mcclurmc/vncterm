@@ -1482,6 +1482,8 @@ static void console_putchar(TextConsole *s, int ch)
     case TTY_STATE_NORM:
 	dprintf("putchar norm %02x '%c'\n", ch, ch > 0x1f ? ch : ' ');
         switch(ch) {
+        case NUL:
+            break;
         case BEL:
 	    dprintf("bell\n");
 	    s->ds->dpy_bell(s->ds);
@@ -1783,7 +1785,7 @@ static void console_putchar(TextConsole *s, int ch)
 		break;
 	    case 'J': /* eraseInDisplay */
 		if (s->nb_esc_params == 0)
-		    s->esc_params[0] = 2;
+		    s->esc_params[0] = 0;
 		switch(s->esc_params[0]) {
 		    case 0: /* erase from cursor to end of display */
 			clear(s, s->x, s->y, s->width,
@@ -1861,8 +1863,8 @@ static void console_putchar(TextConsole *s, int ch)
 		    console_handle_escape(s);
 #endif
 		break;
-	    case 'h': /* reset mode */
-	    case 'l': /* set mode */
+	    case 'l': /* reset mode */
+            case 'h': /* set mode */
 		a = (ch == 'h') ? 1 : 0;
 		if (s->has_qmark) {
 		    for (i = 0; i < s->nb_esc_params; i++) {

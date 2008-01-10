@@ -10,6 +10,7 @@
 #define	qemu_free(p) free((p))
 
 /* control characters */
+#define NUL 0x00
 #define BEL 0x07
 #define BS 0x08
 #define HT 0x09
