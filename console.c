@@ -1824,7 +1824,11 @@ static void console_putchar(TextConsole *s, int ch)
 	    case 'M':
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
-		scroll_up(s, s->esc_params[0]);
+                scroll_text_cells(s, s->y + s->esc_params[0], s->y, s->sr_bottom - s->y - s->esc_params[0] + 1);
+                update_rect(s, 0, s->y, s->width, s->sr_bottom - s->y - s->esc_params[0] + 1);
+                s->backscroll += s->esc_params[0];
+                if (s->backscroll > (s->total_height-s->height) )
+                    s->backscroll = s->total_height-s->height;
 		break;
 	    case 'P':		/* DCH */
 		console_dch(s);
