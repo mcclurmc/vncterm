@@ -1018,38 +1018,33 @@ static void scroll_down(TextConsole* s, int n)
 {
     if (!s || !s->text_console)
         return;
+    
     if ( s->sr_top != 0 || s->sr_bottom != s->height-1 ) {
-	if ( n >= s->sr_bottom-s->sr_top ) {
-	    clear(s, 0, s->sr_top, s->width, s->sr_bottom-s->sr_top);
-	    return;
-	}
-	/* region scroll */
-	scroll_text_cells(s, s->sr_bottom-n, s->sr_bottom, (s->sr_bottom-s->sr_top-n+1) * -1);
-	update_rect(s, 0, s->sr_top+n, s->width, s->sr_bottom-s->sr_top-n+1 );
-	clear(s, 0, s->sr_top, s->width, n);
-	return;
+        if ( n > s->sr_bottom-s->sr_top ) {
+            n = s->sr_bottom-s->sr_top;
+        }
+        scroll_text_cells(s, s->sr_bottom-n, s->sr_bottom, n - s->sr_bottom + s->sr_top - 1);
+        update_rect(s, 0, s->sr_top + n, s->width, s->sr_bottom - s->sr_top - n + 1);
+        clear(s, 0, s->sr_top, s->width, n);
+        
+        return;
     }
-
+    
     if (s->backscroll == 0)
-	return;
+    return;
 
+    if (s->backscroll - n < 0)
+        n = s->backscroll;
+    
     s->backscroll -= n;
-
-    if (s->backscroll < 0) {
-	n = n-(-s->backscroll);
-	s->backscroll = 0;
-    }
-
     s->y_base -= n;
 
     if (s->y_base < 0)
-	s->y_base += s->total_height;
+        s->y_base += s->total_height;
 
     vga_scroll(s, -n);
-    clear(s, 0, 0, s->width, n );
-    update_rect(s, 0, 0, s->width, n);
+    clear(s, 0, s->sr_top, s->width, n);
     s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
-
 }
 
 /* scrolls up, moves whole view to the -n point */
@@ -1057,37 +1052,29 @@ static void scroll_up(TextConsole* s, int n)
 {
     if (!s || !s->text_console)
         return;
-
+    
     if ( s->sr_top != 0 || s->sr_bottom != s->height-1 ) {
-	/* if n is bigger than scrolling region, just clear it */
-	if ( n >= s->sr_bottom-s->sr_top ) {
-	    clear(s, 0, s->sr_top, s->width, s->sr_bottom-s->sr_top);
-	    return;
-	}
-	/* region scroll */
-	scroll_text_cells(s, s->sr_top+n, s->sr_top, s->sr_bottom-s->sr_top-n+1);
-	update_rect(s, 0, s->sr_top, s->width, s->sr_bottom-s->sr_top-n+1 );
-	clear(s, 0, s->sr_bottom-n+1, s->width, n);
-	return;
+        if ( n > s->sr_bottom-s->sr_top ) {
+            n = s->sr_bottom-s->sr_top;
+        }
+        scroll_text_cells(s, s->sr_top+n, s->sr_top, s->sr_bottom-s->sr_top-n+1);
+        update_rect(s, 0, s->sr_top, s->width, s->sr_bottom - s->sr_top - n + 1);
+        clear(s, 0, s->sr_bottom - n + 1, s->width, n);
+        
+        return;
     }
+    
+    if (s->backscroll + n > (s->total_height-s->height))
+        n = (s->total_height-s->height) - s->backscroll;
 
-    s->y_base = s->y_base+n;
-
-    if (s->y_base > s->total_height )
-	s->y_base -= s->total_height;
-
-    /* it also means that we can scroll back few more lines */
+    s->y_base = s->y_base + n;
     s->backscroll += n;
-
-    /* or not.. */
-    if (s->backscroll > (s->total_height-s->height) )
-	s->backscroll = s->total_height-s->height;
-
+    
+    if (s->y_base > s->total_height )
+        s->y_base -= s->total_height;
+    
     vga_scroll(s, n);
-
-    clear(s, 0, s->height-n, s->width, n);
-    s->ds->dpy_update(s->ds, 0, (s->height-n)*FONT_HEIGHT, s->g_width, n);
-//    update_rect(s, 0, s->height-n, s->width, n);
+    clear(s, 0, s->sr_bottom - n + 1, s->width, n);
     s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
 }
 
