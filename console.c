@@ -1444,17 +1444,15 @@ static void console_dch(TextConsole *s)
 	d++;
 	update_xy(s, x, s->y);
     }
-    /* for the last char on console, check wether it is the last line */
-    if ( s->y == s->height-1 ) {
-	c->ch = ' ';
-	c->t_attrib = s->t_attrib_default;
-	c->c_attrib = s->c_attrib_default;
+    for (; x < s->width; x++) {
+        c->ch = ' ';
+        c->t_attrib = s->t_attrib_default;
+        c->t_attrib.fgcol = s->t_attrib.fgcol;
+        c->t_attrib.bgcol = s->t_attrib.bgcol;
+        c->c_attrib.wrapped = s->c_attrib_default.wrapped;
+        c++;
+        update_xy(s, x, s->y);
     }
-    else {
-	c->ch = d->ch;
-	c->t_attrib = d->t_attrib;
-    }
-    update_xy(s, x, s->y);
 }
 
 static void console_putchar(TextConsole *s, int ch)
