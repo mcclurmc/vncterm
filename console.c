@@ -2163,6 +2163,10 @@ void kbd_put_keysym(int keysym)
         /* convert the QEMU keysym to VT100 key string */
         q = buf;
 	switch (keysym) {
+        case QEMU_KEY_BACKSPACE:
+            /* following closely the linux term "standard" */
+            *q++ = 0x7f;
+            break;
 	case 0xe100 ... 0xe11f:
             *q++ = '\033';
             *q++ = '[';
