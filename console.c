@@ -1752,13 +1752,13 @@ static void console_putchar(TextConsole *s, int ch)
 	    case '`': /* fallthrough */
 	    case 'G':
 		if (s->nb_esc_params == 1) {
-		    dprintf("set cursor x %d\n", s->esc_params[0]);
-		    set_cursor(s, s->esc_params[0], s->y);
+		    dprintf("set cursor x %d\n", s->esc_params[0] - 1);
+		    set_cursor(s, s->esc_params[0] - 1, s->y);
 		    clip_x(s, x);
 		}
 		break;
 	    case 'f':
-	    case 'H': /* cursor possition */
+	    case 'H': /* cursor position */
 		x_ = y_ = 0;
 		if (s->nb_esc_params > 1)
 		    x_ = s->esc_params[1] - 1;
