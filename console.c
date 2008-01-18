@@ -1029,16 +1029,12 @@ static void scroll_down(TextConsole* s, int n)
         
         return;
     }
-    
-    if (s->backscroll == 0)
-    return;
-
-    if (s->backscroll - n < 0)
-        n = s->backscroll;
-    
+       
     s->backscroll -= n;
+    if (s->backscroll < 0)
+        s->backscroll = 0;
+    
     s->y_base -= n;
-
     if (s->y_base < 0)
         s->y_base += s->total_height;
 
@@ -1064,12 +1060,11 @@ static void scroll_up(TextConsole* s, int n)
         return;
     }
     
-    if (s->backscroll + n > (s->total_height-s->height))
-        n = (s->total_height-s->height) - s->backscroll;
-
-    s->y_base = s->y_base + n;
     s->backscroll += n;
-    
+    if (s->backscroll > (s->total_height-s->height) )
+        s->backscroll = s->total_height-s->height;
+
+    s->y_base = s->y_base + n;  
     if (s->y_base > s->total_height )
         s->y_base -= s->total_height;
     
@@ -1804,16 +1799,13 @@ static void console_putchar(TextConsole *s, int ch)
 	    case 'L':
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
-		scroll_down(s, s->esc_params[0]);
+                scroll_down(s, s->esc_params[0]);
 		break;
 	    case 'M':
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
                 scroll_text_cells(s, s->y + s->esc_params[0], s->y, s->sr_bottom - s->y - s->esc_params[0] + 1);
-                update_rect(s, 0, s->y, s->width, s->sr_bottom - s->y - s->esc_params[0] + 1);
-                s->backscroll += s->esc_params[0];
-                if (s->backscroll > (s->total_height-s->height) )
-                    s->backscroll = s->total_height-s->height;
+                update_rect(s, 0, s->y, s->width, s->sr_bottom - s->y + 1);
 		break;
 	    case 'P':		/* DCH */
 		console_dch(s);
