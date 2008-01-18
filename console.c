@@ -44,6 +44,8 @@
 #define G0	0
 #define G1	1
 
+int insertmode = 0;
+
 typedef struct TextAttributes {
     uint8_t fgcol:4;
     uint8_t bgcol:4;
@@ -2180,6 +2182,94 @@ void kbd_put_keysym(int keysym)
             *q++ = '[';
             *q++ = keysym & 0xff;
 	    break;
+        case 0xffb0 ... 0xffb9: /* keypad numbers from 0 to 9 */
+            *q++ = (keysym & 0x00ff) - 0xb0 + 0x30;
+            break;
+        case 0xff95: /* KP_Home */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '1';
+            *q++ = '~';
+            break;
+        case 0xff96: /* KP_Left */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = 'D';
+            break;
+        case 0xff97: /* KP_Up */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = 'A';
+            break;
+        case 0xff98: /* KP_Right */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = 'C';
+            break;
+        case 0xff99: /* KP_Down */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = 'B';
+            break;
+        case 0xff9c: /* KP_End */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '4';
+            *q++ = '~';
+            break;
+        case 0xff9b: /* KP_Next (PgDown) */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '6';
+            *q++ = '~';
+            break;
+        case 0xff9d: /* Ignore KP_Begin (alternative to 5) */
+            break;
+        case 0xff7f: /* Ignore Num_Lock */
+            break;
+        case 0xffae: /* KP_Decimal */
+            *q++ = '.';
+            break;
+        case 0xff9e: /* KP_Insert */
+        case 0xff63: /* Insert */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '4';
+            if (!insertmode) {
+                *q++ = 'h';
+                insertmode = 1;
+            } else {
+                *q++ = 'l';
+                insertmode = 0;
+            }
+            break;
+        case 0xff9f: /* KP_Delete */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '3';
+            *q++ = '~';
+            break;
+        case 0xff8d: /* KP_Enter */
+            *q++ = 0x0d;
+            break;
+        case 0xffab: /* KP_Add */
+            *q++ = '+';
+            break;
+        case 0xff9a: /* KP_Prior (PgUp) */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '5';
+            *q++ = '~';
+            break;
+        case 0xffaf: /* KP_Divide */
+            *q++ = '/';
+            break;
+        case 0xffaa: /* KP_Multiply */
+            *q++ = '*';
+            break;
+        case 0xffad: /* KP_Subtract */
+            *q++ = '-';
+            break;    
 	default:
 	    *q++ = keysym;
         }
