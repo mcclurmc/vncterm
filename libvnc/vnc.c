@@ -1442,9 +1442,11 @@ static void set_encodings(struct VncClientState *vcs, int32_t *encodings,
 	case -239: /* Cursor Pseud-Encoding */
 	    vcs->has_cursor_encoding = 1;
 	    break;
-    case -255: /* vncviewer client */
-        vcs->isvncviewer = 1;
-        break;
+        case -254: /* xencenter */
+            break;
+        case -255: /* vncviewer client */
+            vcs->isvncviewer = 1;
+            break;
 	case -257:
 	    vcs->has_pointer_type_change = 1;
 	    break;
