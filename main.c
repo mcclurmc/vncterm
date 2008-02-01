@@ -500,9 +500,28 @@ main(int argc, char **argv, char **envp)
     memset(&sa.sin_addr, 0, sizeof(sa.sin_addr));
     if (vnclisten != NULL)
     {
-    	if (!inet_aton(vnclisten, &(sa.sin_addr))) err(1, "inet_aton");
+        char *c;
+        c = strchr(vnclisten, ':');
+        if (c != NULL) {
+            int port;
+            char *r;
+            *c = '\0';
+            c++;
+            if (strlen(vnclisten) > 1)
+                if (!inet_aton(vnclisten, &(sa.sin_addr))) err(1, "inet_aton");
+            port = strtol(c, (char **)&r, 10);
+            if (r[0] != '\0' && c[0] != '\0') {
+                fprintf(stderr, "incorrect port number\n");
+                exit(1);
+            }
+            sa.sin_port = htons(port);
+        } else {
+            if (!inet_aton(vnclisten, &(sa.sin_addr))) err(1, "inet_aton");
+            sa.sin_port = htons(0);
+        }
+    } else {
+        sa.sin_port = htons(0);
     }
-    sa.sin_port = htons(0);
     ((struct sockaddr *)&sa)->sa_family = AF_INET;
 
     display = vnc_display_init(ds, (struct sockaddr *)&sa, 1, title, NULL, 
