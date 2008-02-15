@@ -836,6 +836,8 @@ highlight(TextConsole *s, int from_x, int from_y, int to_x, int to_y, int highli
 {
     TextCell *c;
     int sc_fy, sc_ty;
+    int x;
+    int last_c = 0;
 
     if (from_y == to_y && to_x == from_x)
 	return;
@@ -851,22 +853,28 @@ highlight(TextConsole *s, int from_x, int from_y, int to_x, int to_y, int highli
 
     dprintf("highlight from %d/%d to %d/%d - %d \n", from_y, from_x, to_y, to_x, highlight);
 
-    while(from_y != to_y || from_x != to_x) {
-	c = &s->cells[from_y * s->width + from_x];
-	
+    if (to_y != from_y) x = s->width - 1;
+    else x = to_x - 1;
+    while(from_y <= to_y && x >= 0) {        
+	c = &s->cells[from_y * s->width + x];
 	if (c->c_attrib.highlit != highlight) {
-	    if (c->t_attrib.used) {
+	    if (c->t_attrib.used || from_y != to_y || last_c) {
 		c->c_attrib.highlit = highlight;
-		update_xy(s, from_x, sc_fy);
+		update_xy(s, x, sc_fy);
+                last_c = 1;
 	    }
 	}
 
-	c++;
-	from_x++;
-	if (from_x >= s->width) {
-	    from_x = 0;
-	    from_y = next_line(s, from_y);
+	c--;
+	x--;
+        if (x < from_x) {
+            from_y = next_line(s, from_y);
+            if (from_y != to_y) x = s->width - 1;
+            else x = to_x - 1;
+    
 	    sc_fy = virtual_to_screen(s, from_y);
+            last_c = 0;
+            from_x = 0;
 	}
     }
 }
