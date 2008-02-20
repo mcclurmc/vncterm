@@ -1086,11 +1086,14 @@ static void scroll_up(TextConsole* s, int n)
 void
 mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 {
+    static int odx = 0;
+    int ndx;
     CharDriverState *chr = opaque;
     TextConsole *s = chr->opaque;
     char *text;
 
     dprintf("mouse event %03x:%03x:%x:%x\n", dx, dy, dz, buttons_state);
+    ndx = dx;
     dx = dx * s->width / 0x7FFF;
     dy = dy * s->height / 0x7FFF;
 
@@ -1157,6 +1160,11 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	    /* zero the highlight first */
 	    highlight(s, s->selections[0].startx, s->selections[0].starty,
 		s->selections[0].endx, s->selections[0].endy, 0);
+            if (dx == s->selections[0].endx) {
+                if (ndx - odx > 10) dx++;
+            } else if (dx == s->selections[0].endx - 1) {
+                if (odx - ndx < 10) dx++;
+            }
 	    /* update coords */
 	    s->selections[0].endx = dx;
 	    s->selections[0].endy = screen_to_virtual(s, dy);
@@ -1165,6 +1173,7 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 		s->selections[0].endx, s->selections[0].endy, 1);
 	}
     }
+    odx = ndx;
 }
 
 static void va_write(TextConsole *s, char *f, ...)
