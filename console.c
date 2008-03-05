@@ -798,7 +798,7 @@ get_text(TextConsole *s, int from_x, int from_y, int to_x, int to_y)
 
     dprintf("get_text from %d/%d to %d/%d \n", from_y, from_x, to_y, to_x);
 
-    buffer = malloc((line_dist(s, from_y, to_y)+1)*s->width);
+    buffer = malloc((line_dist(s, from_y, to_y) + 1) * (s->width + 1));
     if (buffer == NULL)
 	return NULL;
 
@@ -1127,7 +1127,7 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	    text = get_text(s, s->selections[0].startx, s->selections[0].starty,
 			   s->selections[0].endx, s->selections[0].endy);
 
-	    if ( strlen(text) )
+	    if ( text != NULL && strlen(text) )
 		s->ds->dpy_set_server_text(s->ds, text);
 
 	    /* set flag, copy current selection to old one */
@@ -1165,6 +1165,8 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
             } else if (dx == s->selections[0].endx - 1) {
                 if (odx - ndx < 10) dx++;
             }
+            if (dx >= s->width) dx = s->width - 1;
+
 	    /* update coords */
 	    s->selections[0].endx = dx;
 	    s->selections[0].endy = screen_to_virtual(s, dy);
