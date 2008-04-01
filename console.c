@@ -682,6 +682,7 @@ static void text_console_resize(TextConsole *s)
 static int virtual_to_screen(TextConsole *s, int y) 
 {
     y -= s->y_base-s->y_scroll;
+    y %= s->total_height;
 
     if (y<0)
 	y += s->total_height;
