@@ -2144,7 +2144,61 @@ void dump_console_to_file(CharDriverState *chr, char *fn)
     if (!f)
 	return;
 
-    fwrite(s->cells, s->width * s->total_height, sizeof(TextCell), f);
+    fwrite(&(s->g_width), sizeof(int), 1, f);
+    fwrite(&(s->g_height), sizeof(int), 1, f);
+    fwrite(&(s->total_height), sizeof(int), 1, f);
+    fwrite(&(s->sr_bottom), sizeof(int), 1, f);
+    fwrite(&(s->sr_top), sizeof(int), 1, f);
+    fwrite(&(s->y_base), sizeof(int), 1, f);
+    fwrite(&(s->y_scroll), sizeof(int), 1, f);
+    fwrite(&(s->wrapped), sizeof(char), 1, f);
+    fwrite(&(s->x), sizeof(int), 1, f);
+    fwrite(&(s->y), sizeof(int), 1, f);
+    fwrite(&(s->saved_x), sizeof(int), 1, f);
+    fwrite(&(s->saved_y), sizeof(int), 1, f);
+    fwrite(&(s->backscroll), sizeof(int), 1, f);
+    fwrite(s->cells, sizeof(TextCell), s->width * s->total_height, f);
+    fclose(f);
+
+    /* Just touch a file so that Xapi knows when I finish dumping the console
+     * to file */
+    f = fopen("save-complete", "w");
+    fwrite("done", 4, 1, f);
+    fclose(f);
+}
+
+void load_console_from_file(CharDriverState *chr, char *fn)
+{
+    FILE* f;
+    TextConsole *s = chr->opaque;
+
+    if (s == NULL)
+        return;
+
+    if (s->cells == NULL)
+        return;
+
+    f=fopen(fn, "rb");
+    if (!f)
+        return;
+
+    fread(&(s->g_width), sizeof(int), 1, f);
+    fread(&(s->g_height), sizeof(int), 1, f);
+    fread(&(s->total_height), sizeof(int), 1, f);
+    
+    text_console_resize(s);
+    
+    fread(&(s->sr_bottom), sizeof(int), 1, f);
+    fread(&(s->sr_top), sizeof(int), 1, f);
+    fread(&(s->y_base), sizeof(int), 1, f);
+    fread(&(s->y_scroll), sizeof(int), 1, f);
+    fread(&(s->wrapped), sizeof(char), 1, f);
+    fread(&(s->x), sizeof(int), 1, f);
+    fread(&(s->y), sizeof(int), 1, f);
+    fread(&(s->saved_x), sizeof(int), 1, f);
+    fread(&(s->saved_y), sizeof(int), 1, f);
+    fread(&(s->backscroll), sizeof(int), 1, f);
+    fread(s->cells, sizeof(TextCell), s->width * s->total_height, f);
     fclose(f);
 }
 

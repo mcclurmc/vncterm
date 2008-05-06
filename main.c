@@ -404,6 +404,7 @@ main(int argc, char **argv, char **envp)
     int nfds = 0;
     char *pty_path = NULL;
     char *title = "XenServer Virtual Terminal";
+    char *statefile = NULL;
 #ifndef NXENSTORE
     char *xenstore_path = NULL;
 #endif
@@ -441,14 +442,18 @@ main(int argc, char **argv, char **envp)
 	    {"vnclisten", 1, 0, 'v'},
         {"stay-root", 0, 0, 'S'},
         {"vncviewer", 2, 0, 'V'},
+            {"loadstate", 1, 0, 'l'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+cp:rst:x:v:SV::", long_options, NULL);
+	c = getopt_long(argc, argv, "+cp:rst:x:v:SV::l:", long_options, NULL);
 	if (c == -1)
 	    break;
 
 	switch (c) {
+        case 'l':
+            statefile = strdup(optarg);
+            break;
 	case 'c':
 	    cmd_mode = 1;
             /* We sometimes re-exec ourselves when run in cmd mode,
@@ -527,6 +532,10 @@ main(int argc, char **argv, char **envp)
     display = vnc_display_init(ds, (struct sockaddr *)&sa, 1, title, NULL, 
 		COLS * FONTW, LINES * FONTH );
     vncterm->console = text_console_init(ds);
+    
+    if (statefile != NULL) {
+        load_console_from_file(vncterm->console, statefile);
+    }
     
     if (vncviewer == 1) {
         int i, l = 0;
@@ -668,20 +677,26 @@ main(int argc, char **argv, char **envp)
     if (stay_root) {
         /* warnx("not dropping root privileges"); */
     } else {
+        char root_directory[64];
         struct passwd *pw;
         pw = getpwnam("vncterm_base");
         if (!pw)
             err(1, "getting uid/gid for vncterm_base");
 
-        chdir("/var/empty");
-        chroot("/var/empty");
+        snprintf(root_directory, 64, "/var/xen/vncterm/%d", getpid());
+        if (mkdir(root_directory, 00755) < 0) {
+            fprintf(stderr, "cannot create vncterm scratch directory");
+            strcpy(root_directory, "/var/empty");
+        }
+
+        chdir(root_directory);
+        chroot(root_directory);
 
         setgid(pw->pw_gid + (unsigned short)display);
         setuid(pw->pw_uid + (unsigned short)display);
     }
 
-    if (stay_root)
-        signal(SIGUSR1, handle_sigusr1);
+    signal(SIGUSR1, handle_sigusr1);
     signal(SIGUSR2, handle_sigusr2);
     signal(SIGCHLD, handle_sigchld);
 
@@ -699,7 +714,7 @@ main(int argc, char **argv, char **envp)
 
         if (dump_cells) {
 	    dump_cells = 0;
-	    dump_console_to_file(vncterm->console, "/tmp/console.cells");
+	    dump_console_to_file(vncterm->console, "vncterm.statefile");
 	}
 
 	if (handlers_updated) {
