@@ -24,6 +24,8 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+#include <locale.h>
+
 #ifndef NXENSTORE
 #include <xs.h>
 #endif
@@ -492,6 +494,7 @@ main(int argc, char **argv, char **envp)
 	}
     }
 
+    setlocale(LC_ALL, "en_US.UTF-8");
     ds = &display_state;
     memset(ds, 0, sizeof(display_state));
     ds->set_fd_handler = set_fd_handler;

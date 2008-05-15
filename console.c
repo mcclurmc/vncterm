@@ -27,7 +27,10 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <ctype.h>
+#include <locale.h>
+#include <wchar.h>
 #include "debug.h"
 #include "consmap.h"
 
@@ -63,6 +66,8 @@ typedef struct TextAttributes {
 typedef struct CellAttributes {
     uint8_t highlit:1;
     uint8_t wrapped:1;
+    uint8_t columns:3;
+    uint8_t spanned:1;
 } CellAttributes;
 
 typedef struct TextCell {
@@ -223,7 +228,7 @@ struct TextConsole {
 
     /* unicode bits (state of unicode input) */
     int unicodeIndex;
-    int unicodeData[4];
+    char unicodeData[7];
     int unicodeLength;
 
 #if 0
@@ -447,17 +452,19 @@ static const uint32_t color_table_rgb[2][8] = {
 static int get_glyphcode(TextConsole *s, int chart)
 {
     int low = 0, high = 255, mid;
-    int h=0, o=0;
+    int h=0, o='?';
     int curf = s->t_attrib.codec[s->t_attrib.font];
 
     /* there is no point in transcribing latin1 char */
     if (curf == MAPLAT1) {
-	if (chart < 256)
+	if (chart <= 0x7f)
 	    return chart;
 	else
 	    curf = MAPGRAF;
     }
 
+    if (chart > UTFVAL(high) || chart < UTFVAL(low))
+        return o;
     while(low <= high) {
 	h++;
 	mid = (low + high) / 2;
@@ -1373,6 +1380,42 @@ static void put_norm(TextConsole *s, char ch)
 	print_norm();
 }
 
+static void do_putchar_utf(TextConsole *s, wchar_t ch, char glyph)
+{
+    TextCell *c;
+    int nc, i;
+
+    scroll_to_base(s);
+
+    if (s->wrapped) {
+        c = &s->cells[screen_to_virtual(s, s->y) * s->width + s->x];
+        c->c_attrib.wrapped=1;
+        set_cursor(s, 0, s->y);
+        console_put_lf(s);
+    }
+
+    nc = wcwidth(ch);
+    dprintf("utf-8: %d columns char\n", nc);
+    if (nc < 0) nc = 1;
+    for (i = 0; i < nc; i++) {
+        put_norm(s, glyph);
+        c = &s->cells[screen_to_virtual(s, s->y) * s->width + s->x + i];
+        c->ch = glyph;
+        c->t_attrib = s->t_attrib;
+        c->t_attrib.used = 1;
+        c->c_attrib = s->c_attrib_default;
+        c->c_attrib.columns = nc;
+        c->c_attrib.spanned = i ? 1 : 0;
+        update_xy(s, s->x + i, s->y);
+    }
+
+    if (s->x + nc < s->width)
+        set_cursor(s, s->x + nc, s->y);
+    else
+        if (s->autowrap)
+            s->wrapped = 1;
+}
+
 static void do_putchar(TextConsole *s, int ch)
 {
     TextCell *c;
@@ -1445,8 +1488,8 @@ static void reset_params(TextConsole *s)
 
 static void console_dch(TextConsole *s)
 {
-    TextCell *c, *d;
-    int x, a;
+    TextCell *c, *d, *t;
+    int x, a, nc, i;
 
     if (s->esc_params[0] == 0)
 	s->esc_params[0] = 1;
@@ -1454,7 +1497,20 @@ static void console_dch(TextConsole *s)
 
     c = &s->cells[screen_to_virtual(s,s->y) * s->width + s->x];
     d = c+a;
-    for(x = s->x; x < s->width - a; x++) {
+    
+    nc = 0;
+    i = 0;
+    t = c;
+    while (t->c_attrib.spanned) { 
+        t--;
+        c--;
+    }
+    while (i < a) {
+        nc = nc + t->c_attrib.columns;
+        t = t + t->c_attrib.columns;
+        i++;
+    }
+    for(x = s->x; x < s->width - nc; x++) {
 	c->ch = d->ch;
 	c->t_attrib = d->t_attrib;
 	c++;
@@ -1476,9 +1532,10 @@ static void console_putchar(TextConsole *s, int ch)
 {
     TextCell *c, *d;
     int y1, i, x, x1, a;
-    int x_, y_, och;
+    int x_, y_;
 
     dprintf("putchar %02x '%c' state:%d\n", ch, ch > 0x1f ? ch : ' ', s->state);
+    if (s->unicodeIndex > 0) goto unicode;
 
     switch(s->state) {
     case TTY_STATE_NORM:
@@ -1542,46 +1599,59 @@ static void console_putchar(TextConsole *s, int ch)
             break;
 
         default:
+        unicode:
 /* utf 8 bit */
 	    if (s->t_attrib.utf) {
 		if (s->unicodeIndex > 0) {
+                    wchar_t wc;
 		    if ((ch & 0xc0) != 0x80) {
 			dprintf("bogus unicode data %u\n", ch);
-			/* even tho we think it might be bogus, still print it */
-			do_putchar(s, ch);
+			s->unicodeIndex = 0;
+			return;
 		    }
 		    s->unicodeData[s->unicodeIndex++] = ch;
 		    if (s->unicodeIndex < s->unicodeLength) {
 			return;
 		    }
-		    switch (s->unicodeLength) {
-			case 2:
-			    ch = ((s->unicodeData[0] & 0x1f) << 6) |
-				(s->unicodeData[1] & 0x3f);
-			    break;
-			case 3:
-			    ch = ((s->unicodeData[0] & 0x0f) << 12) |
-				((s->unicodeData[1] & 0x3f) << 6) |
-				(s->unicodeData[2] & 0x3f); 
-			    break;
-			case 4:
- 			    ch = ((s->unicodeData[0] & 0x07) << 18) |
-				((s->unicodeData[1] & 0x3f) << 12) |
-				((s->unicodeData[2] & 0x3f) << 6) |
-				(s->unicodeData[3] & 0x3f);
-			    break;
-			default:
-			    dprintf("bogus unicode length %u\n", s->unicodeLength);
-			break;
-		    }
-		    /* get it from lookup table, cp437_to_uni.trans */
-		    och=ch;
-		    ch = get_glyphcode(s,ch);
-		    s->unicodeIndex = 0;
-		    dprintf("utf8: %x to: %x\n", och, ch);	
+		    mbrtowc(&wc, s->unicodeData, s->unicodeLength, NULL);
+                    switch (s->unicodeLength) {
+                        case 2:
+                           ch = (s->unicodeData[0] & 0x1f);
+                            break;
+                        case 3:
+                           ch = (s->unicodeData[0] & 0x0f);
+                            break;
+                        case 4:
+                           ch = (s->unicodeData[0] & 0x07);
+                            break;
+                        case 5:
+                            ch = (s->unicodeData[0] & 0x03);
+                            break;
+                        case 6:
+                            ch = (s->unicodeData[0] & 0x01);
+                            break;
+                        default:
+                            dprintf("bogus unicode length %u\n", s->unicodeLength);
+                            s->unicodeIndex = 0;
+                            return;
+                        break;
+                    }
+                    for (i = 1; i <= s->unicodeLength - 1; i++) {
+                        ch = (ch << 6) + (s->unicodeData[i] & 0x3f);
+                    } 
+                    s->unicodeIndex = 0;
+                    ch = get_glyphcode(s, ch);
+                    do_putchar_utf(s, wc, ch);
+                    return;
 		} 
 		else {
-		    if ((ch & 0xe0) == 0xc0) {
+                    if ((ch & 0x80) == 0) {
+                        do_putchar(s, ch);
+                        return;
+                    }
+                    else
+                    if ((ch & 0xe0) == 0xc0) {
+                        memset(s->unicodeData, '\0', 7);
 			s->unicodeData[0] = ch;
 			s->unicodeIndex = 1;
 			s->unicodeLength = 2;
@@ -1589,6 +1659,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    } 
 		    else
 		    if ((ch & 0xf0) == 0xe0) {
+                        memset(s->unicodeData, '\0', 7);
 			s->unicodeData[0] = ch;
 			s->unicodeIndex = 1;
 			s->unicodeLength = 3;
@@ -1596,16 +1667,34 @@ static void console_putchar(TextConsole *s, int ch)
 		    } 
 		    else
 		    if ((ch & 0xf8) == 0xf0) {
+                        memset(s->unicodeData, '\0', 7);
 			s->unicodeData[0] = ch;
 			s->unicodeIndex = 1;
 			s->unicodeLength = 4;
 			return;
 		    }
+                    else
+                    if ((ch & 0xfc) == 0xf8) {
+                        memset(s->unicodeData, '\0', 7);
+                        s->unicodeData[0] = ch;
+			s->unicodeIndex = 1;
+			s->unicodeLength = 5;
+                        return;
+                    }
+                    else
+                    if ((ch & 0xfe) == 0xfc) {
+                        memset(s->unicodeData, '\0', 7);
+                        s->unicodeData[0] = ch;
+			s->unicodeIndex = 1;
+			s->unicodeLength = 6;
+                        return;
+                    }
 		}
+	    /* end of utf 8 bit */
+	    } else {
+	        do_putchar(s, ch);
+	        return;
 	    }
-
-/* end of utf 8 bit */
-	    do_putchar(s, ch);
             break;
         }
         break;
@@ -1834,10 +1923,22 @@ static void console_putchar(TextConsole *s, int ch)
 		console_dch(s);
 		break;
             case 'X':
+            {
+                int i = 0, a, nc = 0;
+                TextCell *c = &s->cells[screen_to_virtual(s,s->y) * s->width + s->x]; 
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
-		clear(s, s->x, s->y, s->x + s->esc_params[0], 1);
+		a = s->esc_params[0];
+		while (c->c_attrib.spanned) 
+		    c--;
+		while (i < a) {
+		    nc = nc + c->c_attrib.columns;
+		    c = c + c->c_attrib.columns;
+		    i++;
+		}
+		clear(s, s->x, s->y, s->x + nc, 1);
                 break;
+            }
 	    case 'c': /* device attributes */
 		if (s->nb_esc_params == 0 ) {
 			if (s->t_attrib.utf) 
@@ -2491,6 +2592,8 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->t_attrib_default.font = G0;
     s->c_attrib_default.highlit = 0;
     s->c_attrib_default.wrapped = 0;
+    s->c_attrib_default.columns = 1;
+    s->c_attrib_default.spanned = 0;
     s->unicodeIndex = 0;
     s->unicodeLength = 0;
 
