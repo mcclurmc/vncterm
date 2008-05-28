@@ -2258,7 +2258,28 @@ void dump_console_to_file(CharDriverState *chr, char *fn)
     fwrite(&(s->saved_x), sizeof(int), 1, f);
     fwrite(&(s->saved_y), sizeof(int), 1, f);
     fwrite(&(s->backscroll), sizeof(int), 1, f);
+    fwrite(&(s->total_height), sizeof(int), 1, f);
+    fwrite(&(s->cursor_visible), sizeof(char), 1, f);
+    fwrite(&(s->autowrap), sizeof(char), 1, f);
+    fwrite(&(s->wrapped), sizeof(char), 1, f);
+    fwrite(&(s->insert_mode), sizeof(int), 1, f);
+    fwrite(&(s->cursorkey_mode), sizeof(int), 1, f);
+    fwrite(&(s->t_attrib_default), sizeof(TextAttributes), 1, f);
+    fwrite(&(s->t_attrib), sizeof(TextAttributes), 1, f);
+    fwrite(&(s->saved_t_attrib), sizeof(TextAttributes), 1, f);
     fwrite(s->cells, sizeof(TextCell), s->width * s->total_height, f);
+    fwrite(&(s->state), sizeof(int), 1, f);
+    fwrite((s->esc_params), sizeof(int), MAX_ESC_PARAMS, f);
+    fwrite(&(s->nb_esc_params), sizeof(int), 1, f);
+    fwrite(&(s->has_esc_param), sizeof(int), 1, f);
+    fwrite(&(s->has_qmark), sizeof(int), 1, f);
+    fwrite((s->selections), sizeof(struct selection), 2, f);
+    fwrite(&(s->selecting), sizeof(int), 1, f);
+    fwrite(&(s->mouse_x), sizeof(int), 1, f);
+    fwrite(&(s->mouse_y), sizeof(int), 1, f);
+    fwrite(&(s->unicodeIndex), sizeof(int), 1, f);
+    fwrite((s->unicodeData), sizeof(char), 7, f);
+    fwrite(&(s->unicodeLength), sizeof(int), 1, f);
     fclose(f);
 
     /* Just touch a file so that Xapi knows when I finish dumping the console
@@ -2299,7 +2320,28 @@ void load_console_from_file(CharDriverState *chr, char *fn)
     fread(&(s->saved_x), sizeof(int), 1, f);
     fread(&(s->saved_y), sizeof(int), 1, f);
     fread(&(s->backscroll), sizeof(int), 1, f);
+    fread(&(s->total_height), sizeof(int), 1, f);
+    fread(&(s->cursor_visible), sizeof(char), 1, f);
+    fread(&(s->autowrap), sizeof(char), 1, f);
+    fread(&(s->wrapped), sizeof(char), 1, f);
+    fread(&(s->insert_mode), sizeof(int), 1, f);
+    fread(&(s->cursorkey_mode), sizeof(int), 1, f);
+    fread(&(s->t_attrib_default), sizeof(TextAttributes), 1, f);
+    fread(&(s->t_attrib), sizeof(TextAttributes), 1, f);
+    fread(&(s->saved_t_attrib), sizeof(TextAttributes), 1, f);
     fread(s->cells, sizeof(TextCell), s->width * s->total_height, f);
+    fread(&(s->state), sizeof(int), 1, f);
+    fread(s->esc_params, sizeof(int), MAX_ESC_PARAMS, f);
+    fread(&(s->nb_esc_params), sizeof(int), 1, f);
+    fread(&(s->has_esc_param), sizeof(int), 1, f);
+    fread(&(s->has_qmark), sizeof(int), 1, f);
+    fread(s->selections, sizeof(struct selection), 2, f);
+    fread(&(s->selecting), sizeof(int), 1, f);
+    fread(&(s->mouse_x), sizeof(int), 1, f);
+    fread(&(s->mouse_y), sizeof(int), 1, f);
+    fread(&(s->unicodeIndex), sizeof(int), 1, f);
+    fread(s->unicodeData, sizeof(char), 7, f);
+    fread(&(s->unicodeLength), sizeof(int), 1, f);
     fclose(f);
 }
 
