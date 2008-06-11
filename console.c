@@ -1546,6 +1546,8 @@ static void console_putchar(TextConsole *s, int ch)
 	dprintf("putchar norm %02x '%c'\n", ch, ch > 0x1f ? ch : ' ');
         switch(ch) {
         case NUL:
+        case STX:
+        case SOH:
             break;
         case BEL:
 	    dprintf("bell\n");
