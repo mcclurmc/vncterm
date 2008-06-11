@@ -77,6 +77,7 @@ typedef struct TextCell {
 } TextCell;
 
 #define MAX_ESC_PARAMS 3
+#define MAX_PALETTE_PARAMS 7
 
 enum TTYState {
     TTY_STATE_NORM,
@@ -84,12 +85,12 @@ enum TTYState {
     TTY_STATE_PERCENT,
     TTY_STATE_G0,
     TTY_STATE_G1,
-    TTY_STATE_CSI
+    TTY_STATE_CSI,
+    TTY_STATE_NONSTD,
+    TTY_STATE_PALETTE
 /*
 XXX to be done
     TTY_STATE_HASH,
-    TTY_STATE_NONSTD,
-    TTY_STATE_PALETTE,
     TTY_STATE_SQUARE,
     TTY_STATE_GETPARS,
     TTY_STATE_GOTPARS,
@@ -231,6 +232,8 @@ struct TextConsole {
     char unicodeData[7];
     int unicodeLength;
 
+    uint8_t palette_params[MAX_PALETTE_PARAMS];
+    uint8_t nb_palette_params;
 #if 0
     /* kbd read handler */
     IOCanRWHandler *fd_can_read; 
@@ -247,6 +250,7 @@ typedef struct TextConsole TextConsole;
 static TextConsole *active_console;
 static TextConsole *consoles[MAX_CONSOLES];
 static int nb_consoles = 0;
+void set_color_table(DisplayState *ds); 
 
 #define clip_y(s, v) {			\
 	if ((s)->v < 0)			\
@@ -1704,6 +1708,7 @@ static void console_putchar(TextConsole *s, int ch)
 	s->state = TTY_STATE_NORM;
 	switch (ch) {
 	case ']': /* Operating system command */
+            s->state = TTY_STATE_NONSTD;
 	    break;
 	case '>': /* Set numeric keypad mode */
 	    break;
@@ -2106,15 +2111,52 @@ static void console_putchar(TextConsole *s, int ch)
 		switch (ch) {
 		    case '@':
 			s->t_attrib.utf = 0;
+			s->t_attrib_default.utf = 0;
 			break;
 		    case 'G':
 		    case '8': 
 			s->t_attrib.utf = 1;
+			s->t_attrib_default.utf = 1;
 			break;
 		}
 		s->state = TTY_STATE_NORM;
 		break;
         }
+        break;
+    case TTY_STATE_NONSTD:
+        dprintf("TTY_STATE_NONSTD %c\n", ch);
+        switch (ch) {
+            case 'P':
+                s->nb_palette_params = 0;
+                memset(s->palette_params, 0x00, sizeof(uint8_t) * MAX_PALETTE_PARAMS);
+                s->state = TTY_STATE_PALETTE;
+                break;
+            case 'R':
+                set_color_table(s->ds);
+                s->state = TTY_STATE_NORM;
+                break;
+            default:
+                s->state = TTY_STATE_NORM;
+                break;
+        }
+        break;
+    case TTY_STATE_PALETTE:
+        if ( (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') ) {
+            s->palette_params[s->nb_palette_params++] = (ch > '9' ? (ch & 0xDF) - 'A' + 10 : ch - '0');
+            if (s->nb_palette_params == 7) {
+                uint8_t r, g, b, j = 1;
+                r = 16 * s->palette_params[j++];
+                r += s->palette_params[j++];
+                g = 16 * s->palette_params[j++];
+                g += s->palette_params[j++];
+                b = 16 * s->palette_params[j++];
+                b += s->palette_params[j];
+                *(color_table[0] + s->palette_params[0]) = col_expand(s->ds, vga_get_color(s->ds, QEMU_RGB(r, g, b)));
+                s->state = TTY_STATE_NORM; 
+            }
+        } else
+            s->state = TTY_STATE_NORM;
+        break;
     }
 }
 
