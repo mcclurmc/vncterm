@@ -23,6 +23,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/prctl.h>
 
 #include <locale.h>
 
@@ -389,6 +390,83 @@ vnc_start_viewer(char** opts)
     }
 }
 
+static char root_directory[64];
+static int privsep_fd;
+static int child_pid;
+
+static void clean_exit(int ret)
+{
+    if (strcmp(root_directory, "/var/empty"))
+        rmdir(root_directory);
+    exit(ret);
+}
+
+/* Read data with the assertion that it all must come through, or
+ * else abort the process.  Based on atomicio() from openssh. */
+static void
+must_read(int fd, void *buf, size_t n)
+{
+    char *s = buf;
+    ssize_t res, pos = 0;
+
+    while (n > pos) {
+        res = read(fd, s + pos, n - pos);
+        switch (res) {
+            case -1:
+                if (errno == EINTR || errno == EAGAIN)
+                    continue;
+            case 0:
+                return;
+            default:
+                pos += res;
+        }
+    }
+}
+
+/* Write data with the assertion that it all has to be written, or
+ * else abort the process.  Based on atomicio() from openssh. */
+static void
+must_write(int fd, const void *buf, size_t n)
+{
+    const char *s = buf;
+    ssize_t res, pos = 0;
+
+    while (n > pos) {
+        res = write(fd, s + pos, n - pos);
+        switch (res) {
+            case -1:
+                if (errno == EINTR || errno == EAGAIN)
+                    continue;
+            case 0:
+                exit(0);
+            default:
+                pos += res;
+        }
+    }
+}
+
+static void handle_sigsegv(int num)
+{
+    char buf[] = "sigsegv";
+    must_write(privsep_fd, &buf, 8);
+    while (access("/", W_OK) != 0) {
+        sleep(1);
+    }
+}
+
+static void parent_handle_sigchld(int num)
+{
+    int status, pid;
+    pid = wait(&status);
+    if (pid == child_pid) {
+        if (!WCOREDUMP(status))
+            clean_exit(0);
+        else
+            exit(0);
+    } else
+        signal(SIGCHLD, parent_handle_sigchld);
+}
+
 int
 main(int argc, char **argv, char **envp)
 {
@@ -680,11 +758,15 @@ main(int argc, char **argv, char **envp)
     if (stay_root) {
         /* warnx("not dropping root privileges"); */
     } else {
-        char root_directory[64];
+        int socks[2];
+        gid_t vncterm_gid;
+        uid_t vncterm_uid;
         struct passwd *pw;
         pw = getpwnam("vncterm_base");
         if (!pw)
             err(1, "getting uid/gid for vncterm_base");
+        vncterm_gid = pw->pw_gid + (unsigned short)display;
+        vncterm_uid = pw->pw_uid + (unsigned short)display;
 
         snprintf(root_directory, 64, "/var/xen/vncterm/%d", getpid());
         if (mkdir(root_directory, 00755) < 0) {
@@ -692,11 +774,45 @@ main(int argc, char **argv, char **envp)
             strcpy(root_directory, "/var/empty");
         }
 
-        chdir(root_directory);
-        chroot(root_directory);
+        if (socketpair(AF_LOCAL, SOCK_STREAM, PF_UNSPEC, socks) == -1)
+            err(1, "socketpair() failed");
 
-        setgid(pw->pw_gid + (unsigned short)display);
-        setuid(pw->pw_uid + (unsigned short)display);
+        child_pid = fork();
+        if (child_pid < 0) err(1, "fork() failed");
+        else if (child_pid > 0) {
+            char buf[8];
+            close(socks[0]);
+            signal(SIGCHLD, parent_handle_sigchld);
+            must_read(socks[1], &buf, 8);
+            if (!strncmp(buf, "sigsegv", 8) && strcmp(root_directory, "/var/empty")) {
+                chown(root_directory, vncterm_uid, vncterm_gid);
+                sleep(7);
+            }
+            /* If we are still alive it means we didn't receive a SIGCHLD */
+            kill(child_pid, SIGQUIT);
+            sleep(3);
+            if (!access("/usr/bin/pkill", X_OK)) {
+                char *pkill;
+                asprintf(&pkill, "pkill -SIGKILL -U %d -G %d", vncterm_uid, vncterm_gid);
+                system(pkill);
+            }
+            clean_exit(0);
+        } else {
+            close(socks[1]);
+            privsep_fd = socks[0];
+
+            chdir(root_directory);
+            chroot(root_directory);
+
+            setgid(vncterm_gid);
+            setuid(vncterm_uid);
+
+            /* qemu core dumps are often useful; make sure they're allowed. */
+            prctl(PR_SET_DUMPABLE, 1, 0, 0, 0);
+
+            /* handling SIGSEGV */
+            signal (SIGSEGV, handle_sigsegv);
+        }
     }
 
     signal(SIGUSR1, handle_sigusr1);
