@@ -2447,6 +2447,34 @@ void kbd_put_keysym(int keysym)
         case 0xffb0 ... 0xffb9: /* keypad numbers from 0 to 9 */
             *q++ = (keysym & 0x00ff) - 0xb0 + 0x30;
             break;
+        case 0xffbe ... 0xffc2: /* F1 to F5 */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '[';
+            *q++ = 'A' + (keysym & 0xff) - 0xbe;
+            break;
+        case 0xffc3 ... 0xffc5: /* F6 to F8 */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '1';
+            *q++ = '7' + (keysym & 0xff) - 0xc3;
+            *q++ = '~';
+            break;
+        case 0xffc6: /* F9 */
+        case 0xffc7: /* F10 */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '2';
+            *q++ = '0' + (keysym & 0xff) - 0xc6;
+            *q++ = '~';
+            break;
+        case 0xffc8 ... 0xffcb: /* F11 to F14 */
+            *q++ = '\033';
+            *q++ = '[';
+            *q++ = '2';
+            *q++ = '3' + (keysym & 0xff) - 0xc8;
+            *q++ = '~';
+            break;
         case 0xff95: /* KP_Home */
             *q++ = '\033';
             *q++ = '[';
