@@ -1539,7 +1539,7 @@ static void console_putchar(TextConsole *s, int ch)
     int x_, y_;
 
     dprintf("putchar %02x '%c' state:%d\n", ch, ch > 0x1f ? ch : ' ', s->state);
-    if (s->unicodeIndex > 0) goto unicode;
+    if (s->unicodeIndex > 0 && (ch & 0xc0) == 0x80) goto unicode;
 
     switch(s->state) {
     case TTY_STATE_NORM:
