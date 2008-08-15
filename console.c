@@ -2038,11 +2038,15 @@ static void console_putchar(TextConsole *s, int ch)
 	    case 'n':
 		if (s->nb_esc_params == 1) {
 		    switch (s->esc_params[0]) {
+		    case 5:     /* DSR */
+			va_write(s, "%c[0n", 0x1b);
+			break;
 		    case 6:	/* CPR */
 			va_write(s, "%c[%d;%dR", 0x1b, s->y + 1, s->x + 1);
 			break;
 		    }
 		}
+		break;
 	    case 'r':
 		if (s->nb_esc_params == 0) {
 		    s->sr_top = 0;
