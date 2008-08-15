@@ -1333,7 +1333,13 @@ static void do_key_event(VncState *vs, int down, uint32_t sym)
             case 0x9d:                          /* Right CTRL */
             case 0x38:                          /* Left ALT */
             case 0xb8:                          /* Right ALT */
-                break;
+                return;
+            }
+
+            /* When ALT is held down, send an ESC first */
+            if (vs->modifiers_state[0x38] || vs->modifiers_state[0xb8])
+                vs->ds->kbd_put_keysym('\033');
+            switch (keycode) {
             case 0xc8:
                 vs->ds->kbd_put_keysym(QEMU_KEY_UP + mod);
                 break;
