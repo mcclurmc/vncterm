@@ -1613,6 +1613,7 @@ static void console_putchar(TextConsole *s, int ch)
 		    if ((ch & 0xc0) != 0x80) {
 			dprintf("bogus unicode data %u\n", ch);
 			s->unicodeIndex = 0;
+			do_putchar(s, '?');
 			return;
 		    }
 		    s->unicodeData[s->unicodeIndex++] = ch;
@@ -1649,13 +1650,9 @@ static void console_putchar(TextConsole *s, int ch)
                     ch = get_glyphcode(s, ch);
                     do_putchar_utf(s, wc, ch);
                     return;
-		} 
-		else {
-                    if ((ch & 0x80) == 0) {
-                        do_putchar(s, ch);
-                        return;
-                    }
-                    else
+		}
+                /* multibyte sequence */
+		else if (ch > 0x7f) {
                     if ((ch & 0xe0) == 0xc0) {
                         memset(s->unicodeData, '\0', 7);
 			s->unicodeData[0] = ch;
@@ -1694,7 +1691,15 @@ static void console_putchar(TextConsole *s, int ch)
 			s->unicodeIndex = 1;
 			s->unicodeLength = 6;
                         return;
+                    } else {
+                        printf("Invalid unicode sequence start %x\n", ch);
+                        s->unicodeIndex = 0;
+                        do_putchar(s, '?');
+                        return;
                     }
+		} else {
+		    /* single ASCII char */
+		    do_putchar(s, ch);
 		}
 	    /* end of utf 8 bit */
 	    } else {
