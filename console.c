@@ -1952,14 +1952,9 @@ static void console_putchar(TextConsole *s, int ch)
                 break;
             }
 	    case 'c': /* device attributes */
-		if (s->nb_esc_params == 0 ) {
-			if (s->t_attrib.utf) 
-			    va_write(s, "\033[?62;1;2c"); // I'm a VT220
-			else
-			    va_write(s, "\033[?6c"); // I'm a VT102
-		}
-		/* if there are any params, just return, 
-		   XXX if anyone has idea, spec on how it exactly should behave, file a ticket */
+		if (s->nb_esc_params == 0 )
+                    va_write(s, "\033[?6c"); // I'm a VT102
+		/* if there are any params, just return */ 
 		break;
 	    case 'd':
 		if (s->nb_esc_params == 1) {
