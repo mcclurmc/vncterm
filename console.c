@@ -1707,7 +1707,7 @@ static void console_putchar(TextConsole *s, int ch)
 			s->unicodeLength = 6;
                         return;
                     } else {
-                        printf("Invalid unicode sequence start %x\n", ch);
+                        dprintf("Invalid unicode sequence start %x\n", ch);
                         s->unicodeIndex = 0;
                         do_putchar(s, '?');
                         return;
