@@ -76,7 +76,7 @@ typedef struct TextCell {
     CellAttributes c_attrib;
 } TextCell;
 
-#define MAX_ESC_PARAMS 3
+#define MAX_ESC_PARAMS 16
 #define MAX_PALETTE_PARAMS 7
 
 enum TTYState {
