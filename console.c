@@ -195,6 +195,11 @@ struct TextConsole {
     int insert_mode;
     int cursorkey_mode;
 
+    /* display control chars */
+    char display_ctrl;
+    /* toggle high bit */
+    char toggle_meta;
+
     /* orgin mode, not used currently - only set */
     char origin_mode;
 
@@ -1265,15 +1270,22 @@ static void console_handle_escape(TextConsole *s)
             case 8:
                 s->t_attrib.unvisible = 1;
                 break;
+            case 10:
+                s->t_attrib.font = 0;
+                s->display_ctrl = 0;
+                s->toggle_meta = 0;
+                break;
+            case 11:
+                s->t_attrib.codec[s->t_attrib.font] = MAPGRAF;
+                s->display_ctrl = 1;
+                s->toggle_meta = 0;
+                break;
+            case 12:
+                s->t_attrib.codec[s->t_attrib.font] = MAPIBMPC;
+                s->display_ctrl = 1;
+                s->toggle_meta = 1;
+                break;
 /*
-  10  reset selected mapping, display control flag,
-  and toggle meta flag.
-  11  select null mapping, set display control flag,
-  reset toggle meta flag.
-  12  select null mapping, set display control flag,
-  set toggle meta flag. (The toggle meta flag
-  causes the high bit of a byte to be toggled
-  before the mapping table translation is done.)
   21  set normal intensity (this is not compatible with ECMA-48)
 */
             case 22:
@@ -1544,6 +1556,7 @@ static void console_putchar(TextConsole *s, int ch)
     switch(s->state) {
     case TTY_STATE_NORM:
 	dprintf("putchar norm %02x '%c'\n", ch, ch > 0x1f ? ch : ' ');
+        if (s->display_ctrl && (ch == 127 || !((0x0800f501 >> ch) & 1))) goto unicode;
         switch(ch) {
         case NUL:
         case STX:
@@ -1580,10 +1593,12 @@ static void console_putchar(TextConsole *s, int ch)
         case SO:
 	    dprintf("SO G1 switch\n");
 	    s->t_attrib.font = G1;
+            s->display_ctrl = 1;
             break;
         case SI:
             dprintf("SI G0 switch\n");
 	    s->t_attrib.font = G0;
+            s->display_ctrl = 0;
             break;
         case CAN:
 	case ESN:
@@ -1607,7 +1622,7 @@ static void console_putchar(TextConsole *s, int ch)
         default:
         unicode:
 /* utf 8 bit */
-	    if (s->t_attrib.utf) {
+	    if (s->t_attrib.utf && !s->display_ctrl) {
 		if (s->unicodeIndex > 0) {
                     wchar_t wc;
 		    if ((ch & 0xc0) != 0x80) {
@@ -1703,7 +1718,7 @@ static void console_putchar(TextConsole *s, int ch)
 		}
 	    /* end of utf 8 bit */
 	    } else {
-	        do_putchar(s, ch);
+	        do_putchar(s, s->toggle_meta ? (ch|0x80) : ch);
 	        return;
 	    }
             break;
@@ -1727,6 +1742,8 @@ static void console_putchar(TextConsole *s, int ch)
 	case 'c': /* reset */
 	    dprintf("RESET\n");
 	    set_cursor(s, 0, 0);
+	    s->display_ctrl = 0;
+	    s->toggle_meta = 0;
 	    s->nb_esc_params = 0;
             s->t_attrib = s->t_attrib_default;
 	    /* reset any highlighted area */
@@ -2024,7 +2041,7 @@ static void console_putchar(TextConsole *s, int ch)
 		} else if (s->nb_esc_params >= 1) {
 		    switch (s->esc_params[0]) {
 		    case 3:
-			// s->displaycontrol = a;
+			s->display_ctrl = a;
 			break;
 		    case 4:
 			s->insert_mode = a;
@@ -2312,6 +2329,8 @@ void dump_console_to_file(CharDriverState *chr, char *fn)
     fwrite(&(s->wrapped), sizeof(char), 1, f);
     fwrite(&(s->insert_mode), sizeof(int), 1, f);
     fwrite(&(s->cursorkey_mode), sizeof(int), 1, f);
+    fwrite(&(s->display_ctrl), sizeof(char), 1, f);
+    fwrite(&(s->toggle_meta), sizeof(char), 1, f);
     fwrite(&(s->t_attrib_default), sizeof(TextAttributes), 1, f);
     fwrite(&(s->t_attrib), sizeof(TextAttributes), 1, f);
     fwrite(&(s->saved_t_attrib), sizeof(TextAttributes), 1, f);
@@ -2374,6 +2393,8 @@ void load_console_from_file(CharDriverState *chr, char *fn)
     fread(&(s->wrapped), sizeof(char), 1, f);
     fread(&(s->insert_mode), sizeof(int), 1, f);
     fread(&(s->cursorkey_mode), sizeof(int), 1, f);
+    fread(&(s->display_ctrl), sizeof(char), 1, f);
+    fread(&(s->toggle_meta), sizeof(char), 1, f);
     fread(&(s->t_attrib_default), sizeof(TextAttributes), 1, f);
     fread(&(s->t_attrib), sizeof(TextAttributes), 1, f);
     fread(&(s->saved_t_attrib), sizeof(TextAttributes), 1, f);
