@@ -872,7 +872,7 @@ highlight(TextConsole *s, int from_x, int from_y, int to_x, int to_y, int highli
 
     if (to_y != from_y) x = s->width - 1;
     else x = to_x - 1;
-    while(from_y <= to_y && x >= 0) {        
+    while(x >= 0) {        
 	c = &s->cells[from_y * s->width + x];
 	if (c->c_attrib.highlit != highlight) {
 	    if (c->t_attrib.used || from_y != to_y || last_c) {
@@ -884,7 +884,7 @@ highlight(TextConsole *s, int from_x, int from_y, int to_x, int to_y, int highli
 
 	c--;
 	x--;
-        if (x < from_x) {
+        if (x < from_x && from_y != to_y) {
             from_y = next_line(s, from_y);
             if (from_y != to_y) x = s->width - 1;
             else x = to_x - 1;
