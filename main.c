@@ -73,6 +73,11 @@ struct iohandler *iohandlers = NULL;
 static int nr_handlers = 0;
 static int handlers_updated = 1;
 
+enum privsep_opcode {
+    privsep_op_sigsegv,
+    privsep_op_statefile
+};
+
 int
 set_fd_handler(int fd, int (*fd_read_poll)(void *), void (*fd_read)(void *),
 	       void (*fd_write)(void *), void *opaque)
@@ -392,10 +397,15 @@ vnc_start_viewer(char** opts)
 
 static char root_directory[64];
 static int privsep_fd;
+static int parent_fd;
 static int child_pid;
+#ifndef NXENSTORE
+struct xs_handle *xs = NULL;
+#endif
 
 static void clean_exit(int ret)
 {
+    xs_daemon_close(xs);
     if (strcmp(root_directory, "/var/empty"))
         rmdir(root_directory);
     exit(ret);
@@ -445,10 +455,147 @@ must_write(int fd, const void *buf, size_t n)
     }
 }
 
+static void send_fd(int sock, int fd)
+{
+        struct msghdr msg;
+        char tmp[CMSG_SPACE(sizeof(int))];
+        struct cmsghdr *cmsg;
+        struct iovec vec;
+        int result = 0;
+        ssize_t n;
+
+        memset(&msg, 0, sizeof(msg));
+
+        if (fd >= 0) {
+                msg.msg_control = (caddr_t)tmp;
+                msg.msg_controllen = CMSG_LEN(sizeof(int));
+                cmsg = CMSG_FIRSTHDR(&msg);
+                cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+                cmsg->cmsg_level = SOL_SOCKET;
+                cmsg->cmsg_type = SCM_RIGHTS;
+                *(int *)CMSG_DATA(cmsg) = fd;
+        } else {
+                result = errno;
+        }
+
+        vec.iov_base = &result;
+        vec.iov_len = sizeof(int);
+        msg.msg_iov = &vec;
+        msg.msg_iovlen = 1;
+
+        if ((n = sendmsg(sock, &msg, 0)) == -1)
+                warn("%s: sendmsg(%d)", "send_fd", sock);
+        if (n != sizeof(int))
+                warnx("%s: sendmsg: expected sent 1 got %ld",
+                    "send_fd", (long)n);
+}
+
+static void open_statefile(void)
+{
+    int fd = -1, l;
+    char *name = NULL;
+
+    must_read(parent_fd, &l, sizeof(l));
+    if (l == 0 || l > 256) {
+        errno = EINVAL;
+        goto done;
+    }
+    name = malloc(l+1);
+    if (!name)
+        goto done;
+    must_read(parent_fd, name, l);
+    name[l] = 0;
+
+    fd = open(name, O_RDWR|O_CREAT|O_TRUNC, 0600);
+done:
+    send_fd(parent_fd, fd);
+    free(name);
+    if (fd >= 0)
+        close(fd);
+}
+
+static int receive_fd(int sock)
+{
+        struct msghdr msg;
+        char tmp[CMSG_SPACE(sizeof(int))];
+        struct cmsghdr *cmsg;
+        struct iovec vec;
+        ssize_t n;
+        int result;
+        int fd;
+
+        memset(&msg, 0, sizeof(msg));
+        vec.iov_base = &result;
+        vec.iov_len = sizeof(int);
+        msg.msg_iov = &vec;
+        msg.msg_iovlen = 1;
+        msg.msg_control = tmp;
+        msg.msg_controllen = sizeof(tmp);
+
+        if ((n = recvmsg(sock, &msg, 0)) == -1)
+                warn("%s: recvmsg", "receive_fd");
+        if (n != sizeof(int))
+                warnx("%s: recvmsg: expected received 1 got %zd",
+                      "receive_fd", n);
+        if (result == 0) {
+                cmsg = CMSG_FIRSTHDR(&msg);
+                if (cmsg == NULL) {
+                        warnx("%s: no message header", "receive_fd");
+                        return (-1);
+                }
+                if (cmsg->cmsg_type != SCM_RIGHTS)
+                        warnx("%s: expected type %d got %d", "receive_fd",
+                            SCM_RIGHTS, cmsg->cmsg_type);
+                fd = (*(int *)CMSG_DATA(cmsg));
+                return fd;
+        } else {
+                errno = result;
+                return -1;
+        }
+}
+
+static FILE * receive_file(int sock, const char *mode)
+{
+    int fd;
+    FILE *res;
+    int e;
+
+    fd = receive_fd(sock);
+    if (fd < 0)
+        return NULL;
+    res = fdopen(fd, mode);
+    if (!res) {
+        e = errno;
+        close(fd);
+        errno = e;
+    }
+    return res;
+}
+
+static FILE* privsep_open_statefile(const char *name)
+{
+    enum privsep_opcode cmd;
+    int l;
+
+    if (privsep_fd <= 0) {
+           int fd;
+           fd = open(name, O_RDWR|O_CREAT|O_TRUNC, 0600);
+           return fdopen(fd, "wb");
+    }
+    cmd = privsep_op_statefile;
+    must_write(privsep_fd, &cmd, sizeof(cmd));
+    l = strlen(name);
+    must_write(privsep_fd, &l, sizeof(l));
+    must_write(privsep_fd, name, l);
+
+    return receive_file(privsep_fd, "wb");
+}
+
 static void handle_sigsegv(int num)
 {
-    char buf[] = "sigsegv";
-    must_write(privsep_fd, &buf, 8);
+    enum privsep_opcode cmd;
+    cmd = privsep_op_sigsegv;
+    must_write(privsep_fd, &cmd, sizeof(cmd));
     while (access("/", W_OK) != 0) {
         sleep(1);
     }
@@ -686,7 +833,6 @@ main(int argc, char **argv, char **envp)
 
     if (xenstore_path) {
 	char *path, *port;
-        struct xs_handle *xs;
 
 	xs = xs_daemon_open();
 	if (xs == NULL)
@@ -716,8 +862,6 @@ main(int argc, char **argv, char **envp)
             while (vncterm->pty == NULL)
                 read_xs_watch(xs, vncterm);
 	}
-
-        xs_daemon_close(xs);
     }
     else /* fallthrough */
 #endif
@@ -780,23 +924,36 @@ main(int argc, char **argv, char **envp)
         child_pid = fork();
         if (child_pid < 0) err(1, "fork() failed");
         else if (child_pid > 0) {
-            char buf[8];
+            enum privsep_opcode opcode;
             close(socks[0]);
+            parent_fd = socks[1];
             signal(SIGCHLD, parent_handle_sigchld);
-            must_read(socks[1], &buf, 8);
-            if (!strncmp(buf, "sigsegv", 8) && strcmp(root_directory, "/var/empty")) {
-                chown(root_directory, vncterm_uid, vncterm_gid);
-                sleep(7);
+
+            while (1) {
+                must_read(parent_fd, &opcode, sizeof(opcode));
+                switch (opcode) {
+                case privsep_op_sigsegv:
+                    if (strcmp(root_directory, "/var/empty")) {
+                        chown(root_directory, vncterm_uid, vncterm_gid);
+                        sleep(7);
+                    }
+                    /* If we are still alive it means we didn't receive a SIGCHLD */
+                    kill(child_pid, SIGQUIT);
+                    sleep(3);
+                    if (!access("/usr/bin/pkill", X_OK)) {
+                        char *pkill;
+                        asprintf(&pkill, "pkill -SIGKILL -U %d -G %d", vncterm_uid, vncterm_gid);
+                        system(pkill);
+                    }
+                    clean_exit(0);
+                case privsep_op_statefile:
+                    if (strcmp(root_directory, "/var/empty"))
+                        open_statefile();
+                    break;
+                default:
+                    break;
+                }
             }
-            /* If we are still alive it means we didn't receive a SIGCHLD */
-            kill(child_pid, SIGQUIT);
-            sleep(3);
-            if (!access("/usr/bin/pkill", X_OK)) {
-                char *pkill;
-                asprintf(&pkill, "pkill -SIGKILL -U %d -G %d", vncterm_uid, vncterm_gid);
-                system(pkill);
-            }
-            clean_exit(0);
         } else {
             close(socks[1]);
             privsep_fd = socks[0];
@@ -832,8 +989,30 @@ main(int argc, char **argv, char **envp)
 	    exit(0);
 
         if (dump_cells) {
+            FILE *statefile;
+            char *filepath, *path;
+            int ret;
+
 	    dump_cells = 0;
-	    dump_console_to_file(vncterm->console, "vncterm.statefile");
+            if (strlen(root_directory))
+                ret = asprintf(&filepath, "%s/vncterm.statefile", root_directory);
+            else
+                ret = asprintf(&filepath, "/tmp/vncterm.statefile.%d", getpid());
+            if (ret < 0)
+                err(1, "asprintf");
+            statefile = privsep_open_statefile(filepath);
+	    dump_console_to_file(vncterm->console, statefile);
+
+#ifndef NXENSTORE
+            if (xenstore_path && xs) {
+                ret = asprintf(&path, "%s/statefile", xenstore_path);
+                if (ret < 0)
+                    err(1, "asprintf");
+                ret = xs_write(xs, XBT_NULL, path, filepath, strlen(filepath));
+                if (!ret)
+                    err(1, "xs_write"); 
+            }
+#endif
 	}
 
 	if (handlers_updated) {

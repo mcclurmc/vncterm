@@ -2295,9 +2295,8 @@ static void prepare_console_maps()
 }
 
 /* Not safe after we drop privileges */
-void dump_console_to_file(CharDriverState *chr, char *fn)
+void dump_console_to_file(CharDriverState *chr, FILE *f)
 {
-    FILE* f;
     TextConsole *s = chr->opaque;
 
     if (s == NULL)
@@ -2306,7 +2305,6 @@ void dump_console_to_file(CharDriverState *chr, char *fn)
     if (s->cells == NULL)
 	return;
 
-    f=fopen(fn, "wb");
     if (!f)
 	return;
 
@@ -2347,12 +2345,6 @@ void dump_console_to_file(CharDriverState *chr, char *fn)
     fwrite(&(s->unicodeIndex), sizeof(int), 1, f);
     fwrite((s->unicodeData), sizeof(char), 7, f);
     fwrite(&(s->unicodeLength), sizeof(int), 1, f);
-    fclose(f);
-
-    /* Just touch a file so that Xapi knows when I finish dumping the console
-     * to file */
-    f = fopen("save-complete", "w");
-    fwrite("done", 4, 1, f);
     fclose(f);
 }
 
