@@ -1,4 +1,5 @@
-USE_BRANDING=yes
+USE_BRANDING := yes
+IMPORT_BRANDING := yes
 include $(B_BASE)/common.mk
 include $(B_BASE)/rpmbuild.mk
 
@@ -17,7 +18,7 @@ $(MY_OBJ_DIR)/version.inc:
 	echo VNCTERM_RELEASE := \$$\(CSET_NUMBER\) >> $@
 
 CHANGELOG_DATE    := $(shell LANG=C date +"%a %b %d %Y")
-CHANGELOG_USER    := XenSource, Ltd. <xensource.com>
+CHANGELOG_USER    := $(COMPANY_NAME) <$(COMPANY_WEBSITE)>
 CHANGELOG_HEADER  := * $(CHANGELOG_DATE) $(CHANGELOG_USER) [$(VNCTERM_VERSION) $(VNCTERM_RELEASE)]
 CHANGELOG_MESSAGE := - Build vncterm.
 
