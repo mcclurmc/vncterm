@@ -75,7 +75,8 @@ static int handlers_updated = 1;
 
 enum privsep_opcode {
     privsep_op_sigsegv,
-    privsep_op_statefile
+    privsep_op_statefile,
+    privsep_op_statefile_completed
 };
 
 int
@@ -401,6 +402,7 @@ static int parent_fd;
 static int child_pid;
 #ifndef NXENSTORE
 struct xs_handle *xs = NULL;
+char *xenstore_path = NULL;
 #endif
 
 static void clean_exit(int ret)
@@ -514,6 +516,43 @@ done:
         close(fd);
 }
 
+static void xenstore_write_statefile(const char *filepath)
+{
+    int ret;
+    char *path = NULL;
+
+    ret = asprintf(&path, "%s/statefile", xenstore_path);
+    if (ret < 0)
+        err(1, "asprintf");
+    ret = xs_write(xs, XBT_NULL, path, filepath, strlen(filepath));
+    if (!ret)
+        err(1, "xs_write");
+
+    free(path);
+}
+
+static void privsep_xenstore_statefile()
+{
+    size_t l;
+    char *filepath = NULL;
+
+    must_read(parent_fd, &l, sizeof(l));
+    if (l == 0 || l > 256) {
+        errno = EINVAL;
+        goto done;
+    }
+    filepath = malloc(l+1);
+    if (!filepath)
+        goto done;
+    must_read(parent_fd, filepath, l);
+    filepath[l] = 0;
+
+    xenstore_write_statefile(filepath);
+
+done:
+    free(filepath);
+}
+
 static int receive_fd(int sock)
 {
         struct msghdr msg;
@@ -591,6 +630,22 @@ static FILE* privsep_open_statefile(const char *name)
     return receive_file(privsep_fd, "wb");
 }
 
+static void privsep_statefile_completed(const char *name)
+{
+    enum privsep_opcode cmd;
+    int l;
+
+    if (privsep_fd <= 0) {
+        xenstore_write_statefile(name);
+        return;
+    }
+    cmd = privsep_op_statefile_completed;
+    must_write(privsep_fd, &cmd, sizeof(cmd));
+    l = strlen(name);
+    must_write(privsep_fd, &l, sizeof(l));
+    must_write(privsep_fd, name, l);
+}
+
 static void handle_sigsegv(int num)
 {
     enum privsep_opcode cmd;
@@ -599,6 +654,12 @@ static void handle_sigsegv(int num)
     while (access("/", W_OK) != 0) {
         sleep(1);
     }
+}
+
+static void parent_handle_sigusr1(int num)
+{
+    kill(child_pid, SIGUSR1);
+    signal(SIGUSR1, parent_handle_sigusr1);
 }
 
 static void parent_handle_sigchld(int num)
@@ -632,9 +693,6 @@ main(int argc, char **argv, char **envp)
     char *pty_path = NULL;
     char *title = "XenServer Virtual Terminal";
     char *statefile = NULL;
-#ifndef NXENSTORE
-    char *xenstore_path = NULL;
-#endif
     char *vnclisten = NULL;
     char *vncvieweroptions = NULL;
     int exit_on_eof = 1;
@@ -927,6 +985,7 @@ main(int argc, char **argv, char **envp)
             enum privsep_opcode opcode;
             close(socks[0]);
             parent_fd = socks[1];
+            signal(SIGUSR1, parent_handle_sigusr1);
             signal(SIGCHLD, parent_handle_sigchld);
 
             while (1) {
@@ -949,6 +1008,9 @@ main(int argc, char **argv, char **envp)
                 case privsep_op_statefile:
                     if (strcmp(root_directory, "/var/empty"))
                         open_statefile();
+                    break;
+                case privsep_op_statefile_completed:
+                    privsep_xenstore_statefile();
                     break;
                 default:
                     break;
@@ -990,7 +1052,7 @@ main(int argc, char **argv, char **envp)
 
         if (dump_cells) {
             FILE *statefile;
-            char *filepath, *path;
+            char *filepath;
             int ret;
 
 	    dump_cells = 0;
@@ -1004,15 +1066,10 @@ main(int argc, char **argv, char **envp)
 	    dump_console_to_file(vncterm->console, statefile);
 
 #ifndef NXENSTORE
-            if (xenstore_path && xs) {
-                ret = asprintf(&path, "%s/statefile", xenstore_path);
-                if (ret < 0)
-                    err(1, "asprintf");
-                ret = xs_write(xs, XBT_NULL, path, filepath, strlen(filepath));
-                if (!ret)
-                    err(1, "xs_write"); 
-            }
+            if (xenstore_path)
+                privsep_statefile_completed(filepath);
 #endif
+            free(filepath);
 	}
 
 	if (handlers_updated) {
