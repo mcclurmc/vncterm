@@ -428,7 +428,7 @@ must_read(int fd, void *buf, size_t n)
                 if (errno == EINTR || errno == EAGAIN)
                     continue;
             case 0:
-                return;
+                clean_exit(0);
             default:
                 pos += res;
         }
@@ -450,7 +450,7 @@ must_write(int fd, const void *buf, size_t n)
                 if (errno == EINTR || errno == EAGAIN)
                     continue;
             case 0:
-                exit(0);
+                clean_exit(0);
             default:
                 pos += res;
         }
