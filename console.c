@@ -2295,8 +2295,9 @@ static void prepare_console_maps()
 }
 
 /* Not safe after we drop privileges */
-void dump_console_to_file(CharDriverState *chr, FILE *f)
+void dump_console_to_file(CharDriverState *chr, char *fn)
 {
+    FILE* f;
     TextConsole *s = chr->opaque;
 
     if (s == NULL)
@@ -2305,6 +2306,7 @@ void dump_console_to_file(CharDriverState *chr, FILE *f)
     if (s->cells == NULL)
 	return;
 
+    f=fopen(fn, "wb");
     if (!f)
 	return;
 

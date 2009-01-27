@@ -74,7 +74,6 @@ static int nr_handlers = 0;
 static int handlers_updated = 1;
 
 enum privsep_opcode {
-    privsep_op_statefile,
     privsep_op_statefile_completed
 };
 
@@ -399,6 +398,8 @@ static char root_directory[64];
 static int privsep_fd;
 static int parent_fd;
 static int child_pid;
+static gid_t vncterm_gid;
+static uid_t vncterm_uid;
 #ifndef NXENSTORE
 struct xs_handle *xs = NULL;
 char *xenstore_path = NULL;
@@ -454,70 +455,11 @@ must_write(int fd, const void *buf, size_t n)
                 if (errno == EINTR || errno == EAGAIN)
                     continue;
             case 0:
-                clean_exit(0);
+                exit(0);
             default:
                 pos += res;
         }
     }
-}
-
-static void send_fd(int sock, int fd)
-{
-        struct msghdr msg;
-        char tmp[CMSG_SPACE(sizeof(int))];
-        struct cmsghdr *cmsg;
-        struct iovec vec;
-        int result = 0;
-        ssize_t n;
-
-        memset(&msg, 0, sizeof(msg));
-
-        if (fd >= 0) {
-                msg.msg_control = (caddr_t)tmp;
-                msg.msg_controllen = CMSG_LEN(sizeof(int));
-                cmsg = CMSG_FIRSTHDR(&msg);
-                cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-                cmsg->cmsg_level = SOL_SOCKET;
-                cmsg->cmsg_type = SCM_RIGHTS;
-                *(int *)CMSG_DATA(cmsg) = fd;
-        } else {
-                result = errno;
-        }
-
-        vec.iov_base = &result;
-        vec.iov_len = sizeof(int);
-        msg.msg_iov = &vec;
-        msg.msg_iovlen = 1;
-
-        if ((n = sendmsg(sock, &msg, 0)) == -1)
-                warn("%s: sendmsg(%d)", "send_fd", sock);
-        if (n != sizeof(int))
-                warnx("%s: sendmsg: expected sent 1 got %ld",
-                    "send_fd", (long)n);
-}
-
-static void open_statefile(void)
-{
-    int fd = -1, l;
-    char *name = NULL;
-
-    must_read(parent_fd, &l, sizeof(l));
-    if (l == 0 || l > 256) {
-        errno = EINVAL;
-        goto done;
-    }
-    name = malloc(l+1);
-    if (!name)
-        goto done;
-    must_read(parent_fd, name, l);
-    name[l] = 0;
-
-    fd = open(name, O_RDWR|O_CREAT|O_TRUNC, 0600);
-done:
-    send_fd(parent_fd, fd);
-    free(name);
-    if (fd >= 0)
-        close(fd);
 }
 
 static void xenstore_write_statefile(const char *filepath)
@@ -557,83 +499,6 @@ done:
     free(filepath);
 }
 
-static int receive_fd(int sock)
-{
-        struct msghdr msg;
-        char tmp[CMSG_SPACE(sizeof(int))];
-        struct cmsghdr *cmsg;
-        struct iovec vec;
-        ssize_t n;
-        int result;
-        int fd;
-
-        memset(&msg, 0, sizeof(msg));
-        vec.iov_base = &result;
-        vec.iov_len = sizeof(int);
-        msg.msg_iov = &vec;
-        msg.msg_iovlen = 1;
-        msg.msg_control = tmp;
-        msg.msg_controllen = sizeof(tmp);
-
-        if ((n = recvmsg(sock, &msg, 0)) == -1)
-                warn("%s: recvmsg", "receive_fd");
-        if (n != sizeof(int))
-                warnx("%s: recvmsg: expected received 1 got %zd",
-                      "receive_fd", n);
-        if (result == 0) {
-                cmsg = CMSG_FIRSTHDR(&msg);
-                if (cmsg == NULL) {
-                        warnx("%s: no message header", "receive_fd");
-                        return (-1);
-                }
-                if (cmsg->cmsg_type != SCM_RIGHTS)
-                        warnx("%s: expected type %d got %d", "receive_fd",
-                            SCM_RIGHTS, cmsg->cmsg_type);
-                fd = (*(int *)CMSG_DATA(cmsg));
-                return fd;
-        } else {
-                errno = result;
-                return -1;
-        }
-}
-
-static FILE * receive_file(int sock, const char *mode)
-{
-    int fd;
-    FILE *res;
-    int e;
-
-    fd = receive_fd(sock);
-    if (fd < 0)
-        return NULL;
-    res = fdopen(fd, mode);
-    if (!res) {
-        e = errno;
-        close(fd);
-        errno = e;
-    }
-    return res;
-}
-
-static FILE* privsep_open_statefile(const char *name)
-{
-    enum privsep_opcode cmd;
-    int l;
-
-    if (privsep_fd <= 0) {
-           int fd;
-           fd = open(name, O_RDWR|O_CREAT|O_TRUNC, 0600);
-           return fdopen(fd, "wb");
-    }
-    cmd = privsep_op_statefile;
-    must_write(privsep_fd, &cmd, sizeof(cmd));
-    l = strlen(name);
-    must_write(privsep_fd, &l, sizeof(l));
-    must_write(privsep_fd, name, l);
-
-    return receive_file(privsep_fd, "wb");
-}
-
 static void privsep_statefile_completed(const char *name)
 {
     enum privsep_opcode cmd;
@@ -665,6 +530,16 @@ static void sigxfsz_handler(int num)
 
 static void parent_handle_sigusr1(int num)
 {
+    if (strcmp(root_directory, "/var/empty")) {
+        int f;
+        char name[80];
+        snprintf(name, 80, "%s/vncterm.statefile", root_directory);
+        f = creat(name, 0644);
+        if (f > 0) {
+            close(f);
+            chown(name, vncterm_uid, vncterm_gid);
+        }
+    }
     kill(child_pid, SIGUSR1);
     signal(SIGUSR1, parent_handle_sigusr1);
 }
@@ -968,8 +843,6 @@ main(int argc, char **argv, char **envp)
         /* warnx("not dropping root privileges"); */
     } else {
         int socks[2];
-        gid_t vncterm_gid;
-        uid_t vncterm_uid;
         struct passwd *pw;
         pw = getpwnam("vncterm_base");
         if (!pw)
@@ -998,10 +871,6 @@ main(int argc, char **argv, char **envp)
             while (1) {
                 must_read(parent_fd, &opcode, sizeof(opcode));
                 switch (opcode) {
-                case privsep_op_statefile:
-                    if (strcmp(root_directory, "/var/empty"))
-                        open_statefile();
-                    break;
                 case privsep_op_statefile_completed:
                     privsep_xenstore_statefile();
                     break;
@@ -1016,6 +885,7 @@ main(int argc, char **argv, char **envp)
 
             close(socks[1]);
             privsep_fd = socks[0];
+            xs_daemon_close(xs);
 
             rlim.rlim_cur = 64 * 1024 * 1024;
             rlim.rlim_max = 64 * 1024 * 1024 + 64;
@@ -1034,7 +904,7 @@ main(int argc, char **argv, char **envp)
             setgid(vncterm_gid);
             setuid(vncterm_uid);
 
-            /* qemu core dumps are often useful; make sure they're allowed. */
+            /* vncterm core dumps are often useful; make sure they're allowed. */
             prctl(PR_SET_DUMPABLE, 1, 0, 0, 0);
 
             /* handling SIGXFSZ */
@@ -1059,23 +929,34 @@ main(int argc, char **argv, char **envp)
 	    exit(0);
 
         if (dump_cells) {
-            FILE *statefile;
             char *filepath;
             int ret;
 
 	    dump_cells = 0;
             if (strlen(root_directory))
-                ret = asprintf(&filepath, "%s/vncterm.statefile", root_directory);
+                ret = asprintf(&filepath, "vncterm.statefile");
             else
                 ret = asprintf(&filepath, "/tmp/vncterm.statefile.%d", getpid());
             if (ret < 0)
                 err(1, "asprintf");
-            statefile = privsep_open_statefile(filepath);
-	    dump_console_to_file(vncterm->console, statefile);
+	    dump_console_to_file(vncterm->console, filepath);
 
 #ifndef NXENSTORE
-            if (xenstore_path)
-                privsep_statefile_completed(filepath);
+            if (xenstore_path) {
+                char *fullfilepath;
+                if (filepath[0] != '/') {
+                    ret = asprintf(&fullfilepath, "%s/vncterm.statefile", root_directory);
+                    if (ret < 0)
+                        err(1, "asprintf");
+                } else {
+                    fullfilepath = malloc(strlen(filepath) + 1);
+                    if (!fullfilepath)
+                        err(1, "malloc");
+                    memcpy (fullfilepath, filepath, strlen(filepath) + 1);
+                }
+                privsep_statefile_completed(fullfilepath);
+                free(fullfilepath);
+            }
 #endif
             free(filepath);
 	}
