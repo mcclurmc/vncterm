@@ -74,7 +74,6 @@ static int nr_handlers = 0;
 static int handlers_updated = 1;
 
 enum privsep_opcode {
-    privsep_op_sigsegv,
     privsep_op_statefile,
     privsep_op_statefile_completed
 };
@@ -407,9 +406,14 @@ char *xenstore_path = NULL;
 
 static void clean_exit(int ret)
 {
-    xs_daemon_close(xs);
-    if (strcmp(root_directory, "/var/empty"))
+    if (strcmp(root_directory, "/var/empty")) {
+        char name[80];
+        struct stat buf;
+        snprintf(name, 80, "%s/core.%d", root_directory, child_pid);
+        if (!stat(name, &buf) && !buf.st_size)
+            unlink(name);
         rmdir(root_directory);
+    }
     exit(ret);
 }
 
@@ -646,14 +650,17 @@ static void privsep_statefile_completed(const char *name)
     must_write(privsep_fd, name, l);
 }
 
-static void handle_sigsegv(int num)
+static void sigxfsz_handler(int num)
 {
-    enum privsep_opcode cmd;
-    cmd = privsep_op_sigsegv;
-    must_write(privsep_fd, &cmd, sizeof(cmd));
-    while (access("/", W_OK) != 0) {
-        sleep(1);
-    }
+    struct rlimit rlim;
+
+    getrlimit(RLIMIT_FSIZE, &rlim);
+    rlim.rlim_cur = rlim.rlim_max;
+    setrlimit(RLIMIT_FSIZE, &rlim);
+
+    write(2, "SIGXFSZ received: exiting\n", 26);
+
+    exit(1);
 }
 
 static void parent_handle_sigusr1(int num)
@@ -991,20 +998,6 @@ main(int argc, char **argv, char **envp)
             while (1) {
                 must_read(parent_fd, &opcode, sizeof(opcode));
                 switch (opcode) {
-                case privsep_op_sigsegv:
-                    if (strcmp(root_directory, "/var/empty")) {
-                        chown(root_directory, vncterm_uid, vncterm_gid);
-                        sleep(7);
-                    }
-                    /* If we are still alive it means we didn't receive a SIGCHLD */
-                    kill(child_pid, SIGQUIT);
-                    sleep(3);
-                    if (!access("/usr/bin/pkill", X_OK)) {
-                        char *pkill;
-                        asprintf(&pkill, "pkill -SIGKILL -U %d -G %d", vncterm_uid, vncterm_gid);
-                        system(pkill);
-                    }
-                    clean_exit(0);
                 case privsep_op_statefile:
                     if (strcmp(root_directory, "/var/empty"))
                         open_statefile();
@@ -1013,15 +1006,30 @@ main(int argc, char **argv, char **envp)
                     privsep_xenstore_statefile();
                     break;
                 default:
-                    break;
+                    clean_exit(0);
                 }
             }
         } else {
+            int f;
+            char name[64];
+            struct rlimit rlim;
+
             close(socks[1]);
             privsep_fd = socks[0];
 
+            rlim.rlim_cur = 64 * 1024 * 1024;
+            rlim.rlim_max = 64 * 1024 * 1024 + 64;
+            setrlimit(RLIMIT_FSIZE, &rlim);
+
             chdir(root_directory);
             chroot(root_directory);
+
+            snprintf(name, 64, "core.%d", getpid());
+            f = creat(name, 0644);
+            if (f > 0) {
+                close(f);
+                chown(name, vncterm_uid, vncterm_gid);
+            }
 
             setgid(vncterm_gid);
             setuid(vncterm_uid);
@@ -1029,8 +1037,8 @@ main(int argc, char **argv, char **envp)
             /* qemu core dumps are often useful; make sure they're allowed. */
             prctl(PR_SET_DUMPABLE, 1, 0, 0, 0);
 
-            /* handling SIGSEGV */
-            signal (SIGSEGV, handle_sigsegv);
+            /* handling SIGXFSZ */
+            signal(SIGXFSZ, sigxfsz_handler);
         }
     }
 
