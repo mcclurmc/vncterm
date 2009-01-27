@@ -1,5 +1,4 @@
 
-#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,5 +44,5 @@ unsigned char nrof_clients_connected(CharDriverState *s);
 int mouse_is_absolute(void *);
 void mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque);
 
-void dump_console_to_file(CharDriverState *chr, FILE *f);
+void dump_console_to_file(CharDriverState *chr, char *fn);
 void load_console_from_file(CharDriverState *chr, char *fn);
