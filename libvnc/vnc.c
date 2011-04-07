@@ -1852,7 +1852,7 @@ static void vnc_listen_read(void *opaque)
     vcs->csock = new_sock;
     vcs->isvncviewer = 0;
     socket_set_nonblock(vcs->csock);
-    vs->ds->set_fd_handler(vcs->csock, NULL, vnc_client_read, NULL, opaque);
+    vs->ds->set_fd_handler(vcs->csock, NULL, vnc_client_read, NULL, vcs);
     vs->ds->set_fd_error_handler(vcs->csock, vnc_client_error);
     dprintf("rfb greeting\n");
     vnc_write(vcs, "RFB 003.003\n", 12);
