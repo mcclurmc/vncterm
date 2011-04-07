@@ -27,6 +27,7 @@
 #include "vnc.h"
 #include "qemu_socket.h"
 #include <assert.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -1983,6 +1984,9 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
 	fprintf(stderr, "Invalid socket family %x\n", addr->sa_family);
 	exit(1);
     }
+
+      ret = fcntl(vs->lsock, F_GETFD, NULL);
+      fcntl(vs->lsock, F_SETFD, ret | FD_CLOEXEC);
 
     while (bind(vs->lsock, addr, addrlen) == -1) {
 	if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET) {
