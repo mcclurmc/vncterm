@@ -2742,7 +2742,6 @@ void
 console_set_input(CharDriverState *chr, int fd, void *opaque)
 {
     TextConsole *s = chr->opaque;
-    fcntl(fd, F_SETFL, O_NONBLOCK);
     s->input_stream.fd = fd;
     s->input_stream.opaque = opaque;
     s->input_stream.chunk = NULL;

@@ -41,6 +41,7 @@
 
 #include "console.h"
 #include "libvnc/libvnc.h"
+#include "libvnc/libtextterm.h"
 
 #define LINES	24
 #define COLS	80
@@ -52,6 +53,7 @@ char vncpasswd[64];
 unsigned char challenge[AUTHCHALLENGESIZE];
 
 DisplayState display_state;
+TextDisplayState text_display_state;
 int do_log;
 
 static int dump_cells = 0;
@@ -76,6 +78,8 @@ static int handlers_updated = 1;
 enum privsep_opcode {
     privsep_op_statefile_completed
 };
+
+static void _write_port_to_xenstore(char *xenstore_path, char *type, int port);
 
 int
 set_fd_handler(int fd, int (*fd_read_poll)(void *), void (*fd_read)(void *),
@@ -210,6 +214,7 @@ hw_invalidate(void *s)
 struct process {
     int fd;
     CharDriverState *console;
+    TextDisplayState *tds;
     pid_t pid;
 };
 
@@ -234,13 +239,28 @@ process_read(void *opaque)
 
     count = read(p->fd, buf, 16);
     if (count > 0)
-	p->console->chr_write(p->console, buf, count);
+    {
+        p->console->chr_write(p->console, buf, count);
+        if (p->tds)
+            p->tds->chr_write(p->tds, buf, count);
+    }
+}
+
+static void _configure_input_fd(CharDriverState *console,
+                                TextDisplayState *tds,
+                                int fd, void (*fd_read)(void *), void *opaque)
+{
+    fcntl(fd, F_SETFL, O_NONBLOCK);
+    set_fd_handler(fd, NULL, fd_read, NULL, opaque);
+    console_set_input(console, fd, opaque);
+    if (tds)
+        text_term_display_set_input(tds, fd, opaque);
 }
 
 /* Not safe after we've dropped privileges */
 struct process *
-run_process(CharDriverState *console, const char *filename,
-	    char *const argv[], char *const envp[])
+run_process(CharDriverState *console, TextDisplayState *tds,
+            const char *filename, char *const argv[], char *const envp[])
 {
     struct process *p;
     struct winsize ws;
@@ -250,6 +270,7 @@ run_process(CharDriverState *console, const char *filename,
 	err(1, "malloc");
 
     p->console = console;
+    p->tds = tds;
 
     ws.ws_row = LINES;
     ws.ws_col = COLS;
@@ -265,10 +286,7 @@ run_process(CharDriverState *console, const char *filename,
 	_exit(1);
     }
 
-    set_fd_handler(p->fd, NULL, process_read, NULL, p);
-
-    console_set_input(console, p->fd, p);
-
+    _configure_input_fd(console, tds, p->fd, process_read, p);
     return p;
 }
 
@@ -300,6 +318,7 @@ handle_sigusr2(int signo)
 struct pty {
     int fd;
     CharDriverState *console;
+    TextDisplayState *tds;
 };
 
 void
@@ -311,11 +330,15 @@ pty_read(void *opaque)
 
     count = read(pty->fd, buf, 16);
     if (count > 0)
-	pty->console->chr_write(pty->console, buf, count);
+    {
+    	pty->console->chr_write(pty->console, buf, count);
+        if (pty->tds != NULL)
+            pty->tds->chr_write(pty->tds, buf, count);
+    }
 }
 
 static struct pty *
-connect_pty(char *pty_path, CharDriverState *console)
+connect_pty(char *pty_path, CharDriverState *console, TextDisplayState *tds)
 {
     struct pty *pty;
 
@@ -327,8 +350,9 @@ connect_pty(char *pty_path, CharDriverState *console)
     if (pty->fd == -1)
 	err(1, "open");
     pty->console = console;
-    set_fd_handler(pty->fd, NULL, pty_read, NULL, pty);
-    console_set_input(pty->console, pty->fd, pty);
+    pty->tds = tds;
+
+    _configure_input_fd(console, tds, pty->fd, pty_read, pty);
 
     return pty;
 }
@@ -336,6 +360,7 @@ connect_pty(char *pty_path, CharDriverState *console)
 struct vncterm
 {
     CharDriverState *console;
+    TextDisplayState *tds;
     struct process *process;
     struct pty *pty;
     char *xenstore_path;
@@ -359,7 +384,7 @@ read_xs_watch(struct xs_handle *xs, struct vncterm *vncterm)
     if (pty_path == NULL)
 	goto out;
 
-    vncterm->pty = connect_pty(pty_path, vncterm->console);
+    vncterm->pty = connect_pty(pty_path, vncterm->console, vncterm->tds);
 
     xs_unwatch(xs, vncterm->xenstore_path, "tty");
 
@@ -561,9 +586,11 @@ int
 main(int argc, char **argv, char **envp)
 {
     DisplayState *ds;
+    TextDisplayState *tds;
     struct vncterm *vncterm;
-    struct sockaddr_in sa;
+    struct sockaddr_in sa, sat;
     int display;
+    int text_display;
     struct iohandler *ioh, *next;
     struct timer *t;
     char **newenvp = NULL;	/* sigh gcc */
@@ -584,6 +611,7 @@ main(int argc, char **argv, char **envp)
     int exit_when_all_disconnect = 0;
     int stay_root = 0;
     int vncviewer = 0;
+    int enable_textterm = 0;
 
 #ifdef USE_POLL
     struct pollfd *pollfds = NULL;
@@ -610,10 +638,11 @@ main(int argc, char **argv, char **envp)
         {"stay-root", 0, 0, 'S'},
         {"vncviewer", 2, 0, 'V'},
             {"loadstate", 1, 0, 'l'},
+            {"text", 0, 0, 'T'},
 	    {0, 0, 0, 0}
 	};
 
-	c = getopt_long(argc, argv, "+cp:rst:x:v:SV::l:", long_options, NULL);
+	c = getopt_long(argc, argv, "+cp:rst:x:v:SV::l:T", long_options, NULL);
 	if (c == -1)
 	    break;
 
@@ -655,6 +684,9 @@ main(int argc, char **argv, char **envp)
 	    vncviewer = 1;
         if (optarg != NULL)
             vncvieweroptions = strdup(optarg);
+        case 'T':
+            enable_textterm = 1;
+            break;
         break;
 	}
     }
@@ -669,6 +701,16 @@ main(int argc, char **argv, char **envp)
     ds->set_timer = set_timer;
     ds->kbd_put_keycode = kbd_put_keycode;
     ds->kbd_put_keysym = kbd_put_keysym;
+
+    tds = &text_display_state;
+    memset(tds, 0, sizeof(text_display_state));
+    if (enable_textterm) {
+        tds->set_fd_handler = set_fd_handler;
+        tds->set_fd_error_handler = set_fd_error_handler;
+        tds->init_timer = init_timer;
+        tds->get_clock = get_clock;
+        tds->set_timer = set_timer;
+    }
 
     memset(&sa.sin_addr, 0, sizeof(sa.sin_addr));
     if (vnclisten != NULL)
@@ -697,10 +739,26 @@ main(int argc, char **argv, char **envp)
     }
     ((struct sockaddr *)&sa)->sa_family = AF_INET;
 
+    /* make a copy of the listen port for text console*/
+    memset(&sat.sin_addr, 0, sizeof(sat.sin_addr));
+    sat.sin_family = sa.sin_family;
+    sat.sin_addr = sa.sin_addr;
+    sat.sin_port = sa.sin_port;
+
     display = vnc_display_init(ds, (struct sockaddr *)&sa, 1, title, NULL, 
 		COLS * FONTW, LINES * FONTH );
     vncterm->console = text_console_init(ds);
-    
+
+    if (enable_textterm) {
+        text_display = text_term_display_init(tds, (struct sockaddr *)&sat, 1,
+                                              title);
+        vncterm->tds = tds;
+    }
+    else {
+        text_display = -1;
+        vncterm->tds = NULL;
+    }
+
     if (statefile != NULL) {
         load_console_from_file(vncterm->console, statefile);
     }
@@ -772,23 +830,13 @@ main(int argc, char **argv, char **envp)
 	xenstore_path = NULL;
 
     if (xenstore_path) {
-	char *path, *port;
-
 	xs = xs_daemon_open();
 	if (xs == NULL)
 	    err(1, "xs_daemon_open");
 
-	ret = asprintf(&path, "%s/vnc-port", xenstore_path);
-	if (ret < 0)
-	    err(1, "asprintf");
-
-	ret = asprintf(&port, "%d", display);
-	if (ret < 0)
-	    err(1, "asprintf");
-
-	ret = xs_write(xs, XBT_NULL, path, port, strlen(port));
-	if (!ret)
-	    err(1, "xs_write");
+        _write_port_to_xenstore(xenstore_path, "vnc", display);
+        if (enable_textterm)
+            _write_port_to_xenstore(xenstore_path, "tc", text_display);
 
 	if (!cmd_mode) {
 	    ret = asprintf(&vncterm->xenstore_path, "%s/tty", xenstore_path);
@@ -837,7 +885,7 @@ main(int argc, char **argv, char **envp)
     }
 
     if (pty_path)
-	vncterm->pty = connect_pty(pty_path, vncterm->console);
+	vncterm->pty = connect_pty(pty_path, vncterm->console, vncterm->tds);
 
     if (stay_root) {
         /* warnx("not dropping root privileges"); */
@@ -920,8 +968,8 @@ main(int argc, char **argv, char **envp)
 	if (restart_needed && cmd_mode) {
 	    if (vncterm->process)
 		end_process(vncterm->process);
-	    vncterm->process = run_process(vncterm->console, argv[0],
-					   argv, newenvp);
+	    vncterm->process = run_process(vncterm->console, vncterm->tds,
+                                           argv[0], argv, newenvp);
 	    restart_needed = 0;
 	}
 
@@ -1091,4 +1139,22 @@ main(int argc, char **argv, char **envp)
     }
 
     return 0;
+}
+
+static void _write_port_to_xenstore(char *xenstore_path, char *type, int no)
+{
+    char *path, *port;
+    int ret;
+    
+    ret = asprintf(&path, "%s/%s-port", xenstore_path, type);
+    if (ret < 0)
+        err(1, "asprintf");
+
+    ret = asprintf(&port, "%d", no);
+    if (ret < 0)
+        err(1, "asprintf");
+
+    ret = xs_write(xs, XBT_NULL, path, port, strlen(port));
+    if (!ret)
+        err(1, "xs_write");
 }

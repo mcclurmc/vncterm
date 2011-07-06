@@ -56,13 +56,7 @@
 #include "vnc_keysym.h"
 #include "keymaps.c"
 #include "d3des.h"
-
-typedef struct Buffer
-{
-    size_t capacity;
-    size_t offset;
-    uint8_t *buffer;
-} Buffer;
+#include "buffer.h"
 
 typedef struct VncState VncState;
 struct VncClientState;
@@ -843,39 +837,6 @@ static int vnc_listen_poll(void *opaque)
     return 1;
 }
 #endif
-
-static void buffer_reserve(Buffer *buffer, size_t len)
-{
-    if ((buffer->capacity - buffer->offset) < len) {
-	buffer->capacity += (len + 1024);
-	buffer->buffer = realloc(buffer->buffer, buffer->capacity);
-	if (buffer->buffer == NULL) {
-	    fprintf(stderr, "vnc: out of memory\n");
-	    exit(1);
-	}
-    }
-}
-
-static int buffer_empty(Buffer *buffer)
-{
-    return buffer->offset == 0;
-}
-
-static uint8_t *buffer_end(Buffer *buffer)
-{
-    return buffer->buffer + buffer->offset;
-}
-
-static void buffer_reset(Buffer *buffer)
-{
-    buffer->offset = 0;
-}
-
-static void buffer_append(Buffer *buffer, const void *data, size_t len)
-{
-    memcpy(buffer->buffer + buffer->offset, data, len);
-    buffer->offset += len;
-}
 
 static int vnc_client_io_error(struct VncClientState *vcs, int ret,
 			       int last_errno)
