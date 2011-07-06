@@ -173,7 +173,7 @@ set_timer(void *_t, uint64_t timeout)
 
     t->timeout = timeout;
     while (*c && (o == NULL || n == NULL)) {
-	if ((*c)->timeout >= timeout)
+	if ((*c)->timeout >= timeout && n == timers_tail)
 	    n = c;
 	if (*c == t)
 	    o = c;
