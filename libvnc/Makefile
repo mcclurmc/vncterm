@@ -4,7 +4,9 @@ MINOR = 0
 
 OBJS := 
 OBJS += d3des.o
+OBJS += buffer.o
 OBJS += vnc.o
+OBJS += textterm.o
 
 OBJS_opic = $(patsubst %.o,%.opic,$(OBJS))
 
