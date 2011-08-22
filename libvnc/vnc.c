@@ -1125,16 +1125,24 @@ static void client_cut_text_update(VncState *vs, size_t len, char *text)
     dprintf("paste clipboard update:\"%s\"\n", text);
 
     vs->client_cut_text = realloc(vs->client_cut_text, len);
+    /*
+      KLL 19/8/2011. We need to set the length regardless of whether
+      the buffer ptr is null, because this is used instead of a
+      nullity check. Eg in client_cut_text...
+    */
+    vs->client_cut_text_size = len;
+
     if (vs->client_cut_text == NULL)
 	return;
 
     memcpy(vs->client_cut_text, text, len);
-    vs->client_cut_text_size = len;
 }
 
 static void client_cut_text(VncState *vs)
 {
     unsigned int i;
+
+    // KLL otherwise this test will pass on a null pointer...
 
     for(i=0;i<vs->client_cut_text_size;i++)
 	vs->ds->kbd_put_keysym(vs->client_cut_text[i]);
