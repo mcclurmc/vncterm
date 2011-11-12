@@ -1,0 +1,20 @@
+--- a/libvnc/vnc.c
++++ b/libvnc/vnc.c
+@@ -707,17 +707,11 @@
+     VncState *vs = opaque;
+     int64_t now;
+     int y;
+-    uint64_t width_mask;
+     int maxx, maxy;
+     int new_rectangles;
+ 
+     now = vs->ds->get_clock();
+ 
+-    if (vs->ds->width != DP2X(vs, DIRTY_PIXEL_BITS))
+-	width_mask = (1ULL << X2DP_UP(vs, vs->ds->width)) - 1;
+-    else
+-	width_mask = ~(0ULL);
+-
+     if (!vs->has_update || vs->visible_y >= vs->ds->height 
+ 	|| vs->visible_x >= vs->ds->width)
+ 	goto backoff;

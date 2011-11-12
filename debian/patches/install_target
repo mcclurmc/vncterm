@@ -1,0 +1,10 @@
+--- a/Makefile
++++ b/Makefile
+@@ -59,3 +59,7 @@
+ 
+ print-%:
+ 	echo $($*)
++
++install:
++	mkdir -p $(DESTDIR)/usr/lib/xen-common/xapi/libexec/
++	cp vncterm $(DESTDIR)/usr/lib/xen-common/xapi/libexec/
