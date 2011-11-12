@@ -1,0 +1,11 @@
+--- a/libvnc/vnc.h
++++ b/libvnc/vnc.h
+@@ -17,7 +17,7 @@
+ #define	vnc_free(p) free((p))
+ 
+ #ifndef VNCTERM_BIOS_DIR
+-#define	bios_dir "/usr/share/xen/qemu"
++#define	bios_dir "/usr/share/qemu"
+ #else
+ #define	bios_dir VNCTERM_BIOS_DIR
+ #endif
