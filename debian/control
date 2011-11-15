@@ -18,13 +18,3 @@ Description: Provides VNC service for XCP guest VMs
  .
  This program to expose a virtual machine's serial console as a VNC terminal
  frame buffer.
-
-Package: vncterm-doc
-Architecture: all
-Description: Documentation for vncterm
- The Xen Cloud Platform (XCP) is an open source enterprise-ready server
- virtualization and cloud computing platform, delivering the Xen Hypervisor
- with support for a range of guest operating systems.
- .
- This program to expose a virtual machine's serial console as a VNC terminal
- frame buffer.
