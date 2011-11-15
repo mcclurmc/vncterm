@@ -1,20 +1,30 @@
 Source: vncterm
-Section: unknown
+Section: utils
 Priority: extra
 Maintainer: Jon Ludlam <jonathan.ludlam@eu.citrix.com>
 Build-Depends: debhelper (>= 8.0.0), libxen-dev
 Standards-Version: 3.9.2
-Homepage: <insert the upstream URL, if relevant>
-#Vcs-Git: git://git.debian.org/collab-maint/vncterm.git
-#Vcs-Browser: http://git.debian.org/?p=collab-maint/vncterm.git;a=summary
+Homepage: http://xen.org/products/cloudxen.html
+#Vcs-Git: git://github.com/mcclurmc/vncterm.git
+#Vcs-Browser: https://github.com/mcclurmc/vncterm
 
 Package: vncterm
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: <insert up to 60 chars description>
- <insert long description, indented with spaces>
+Description: Provides VNC service for XCP guest VMs
+ The Xen Cloud Platform (XCP) is an open source enterprise-ready server
+ virtualization and cloud computing platform, delivering the Xen Hypervisor
+ with support for a range of guest operating systems.
+ .
+ This program to expose a virtual machine's serial console as a VNC terminal
+ frame buffer.
 
 Package: vncterm-doc
 Architecture: all
-Description: documentation for vncterm
- <insert long description, indented with spaces>
+Description: Documentation for vncterm
+ The Xen Cloud Platform (XCP) is an open source enterprise-ready server
+ virtualization and cloud computing platform, delivering the Xen Hypervisor
+ with support for a range of guest operating systems.
+ .
+ This program to expose a virtual machine's serial console as a VNC terminal
+ frame buffer.
