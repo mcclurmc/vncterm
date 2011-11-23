@@ -1,18 +1,39 @@
 Format: http://dep.debian.net/deps/dep5
 Upstream-Name: vncterm
-Source: <url://example.com>
+Source: git://github.com/xen-org/vncterm.git
 
 Files: *
-Copyright: <years> <put author's name and email here>
-           <years> <likewise for another author>
-License: <special license>
- <Put the license of the package here indented by 1 space>
- <This follows the format of Description: lines in control file>
+Copyright: 2007 Christian Limpach <Christian.Limpach@xensource.com>
+           2007 Grzegorz Jaskiewicz <gj@xensource.com>
+License: LGPL 2.1 with linking exceptions
+ This library is distributed under the terms of the GNU Lesser General Public
+ License version 2.1.
  .
- <Including paragraphs>
+ As a special exception to the GNU Lesser General Public License, you may link,
+ statically or dynamically, a "work that uses the Library" with a publicly
+ distributed version of the Library to produce an executable file containing
+ portions of the Library, and distribute that executable file under terms of
+ your choice, without any of the additional requirements listed in clause 6 of
+ the GNU Lesser General Public License.  By "a publicly distributed version of
+ the Library", we mean either the unmodified Library as distributed, or a
+ modified version of the Library that is distributed under the conditions
+ defined in clause 3 of the GNU Library General Public License. This exception
+ does not however invalidate any other reasons why the executable file might be
+ covered by the GNU Lesser General Public License.
+ .
+ This library is free software; you can redistribute it and/or modify it under
+ the terms of the GNU Lesser General Public License as published by the Free
+ Software Foundation; either version 2.1 of the License, or (at your option)
+ any later version.
+ .
+ This library is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ details.
+ .
+ The complete text of the GNU Lesser General Public License can be
+ found in `/usr/share/common-licenses/LGPL-2.1'.
 
-# If you want to use GPL v2 or later for the /debian/* files use 
-# the following clauses, or change it to suit. Delete these two lines
 Files: debian/*
 Copyright: 2011 Jon Ludlam <jonathan.ludlam@eu.citrix.com>
 License: GPL-2+
@@ -32,5 +53,123 @@ License: GPL-2+
  On Debian systems, the complete text of the GNU General
  Public License version 2 can be found in "/usr/share/common-licenses/GPL-2".
 
-# Please also look if there are files or directories which have a
-# different copyright/license attached and list them here.
+Files: console.c
+       console.h
+       libvnc/vgafont.h
+       vgafont.h
+Copyright: 2004 Fabrice Bellard <fabrice@bellard.org>
+License: BSD-like
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+
+Files: libvnc/d3des.c
+       libvnc/d3des.h
+Copyright: 1988,1989,1990,1991,1992 Richard Outerbridge
+           1999 AT&T Laboratories Cambridge
+License: Public domain
+ This is D3DES (V5.09) by Richard Outerbridge with the double and
+ triple-length support removed for use in VNC.  Also the bytebit[] array
+ has been reversed so that the most significant bit in each byte of the
+ key is ignored, not the least significant.
+ .
+ These changes are:
+ Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
+ .
+ This software is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ .
+ A portable, public domain, version of the Data Encryption Standard.
+ .
+ Written with Symantec's THINK (Lightspeed) C by Richard Outerbridge.
+ Thanks to: Dan Hoey for his excellent Initial and Inverse permutation
+ code;  Jim Gillogly & Phil Karn for the DES key schedule code; Dennis
+ Ferguson, Eric Young and Dana How for comparing notes; and Ray Lau,
+ for humouring me on.
+ .
+ Copyright (c) 1988,1989,1990,1991,1992 by Richard Outerbridge.
+ (GEnie : OUTER; CIS : [71755,204]) Graven Imagery, 1992.
+
+Files: libvnc/keymaps.c
+Copyright: 2004 Johannes Schindelin
+License: BSD-like
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+
+Files: libvnc/libvnc.h (originally from qemu/vl.h)
+Copyright: 2003 Fabrice Bellard
+License: BSD-like
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+
+Files: libvnc/vnc.c
+       libvnc/vnc.h
+       libvnc/qemu_socket.h
+       libvnc/vnc_keysym.h
+       libvnc/vnchextile.h
+Copyright: 2006 Anthony Liguori <anthony@codemonkey.ws>
+           2006 Fabrice Bellard  <fabrice@bellard.org>
+           2006 Christian Limpach <Christian.Limpach@xensource.com>
+License: BSD-like
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
