@@ -1,14 +1,14 @@
-Source: vncterm
+Source: xcp-vncterm
 Section: utils
 Priority: extra
 Maintainer: Jon Ludlam <jonathan.ludlam@eu.citrix.com>
 Build-Depends: debhelper (>= 8.0.0), libxen-dev
 Standards-Version: 3.9.2
 Homepage: http://xen.org/products/cloudxen.html
-#Vcs-Git: git://github.com/mcclurmc/vncterm.git
-#Vcs-Browser: https://github.com/mcclurmc/vncterm
+#Vcs-Git: git://github.com/jonludlam/vncterm.git
+#Vcs-Browser: https://github.com/jonludlam/vncterm
 
-Package: vncterm
+Package: xcp-vncterm
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Provides VNC service for XCP guest VMs
