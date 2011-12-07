@@ -6,5 +6,5 @@
  	echo $($*)
 +
 +install:
-+	mkdir -p $(DESTDIR)/usr/lib/xen-common/xapi/libexec/
-+	cp vncterm $(DESTDIR)/usr/lib/xen-common/xapi/libexec/
++	mkdir -p $(DESTDIR)/usr/lib/xcp/lib/
++	cp vncterm $(DESTDIR)/usr/lib/xcp/lib/

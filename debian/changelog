@@ -1,3 +1,9 @@
+xcp-vncterm (0.1-2) unstable; urgency=low
+
+  * FHSing
+
+ -- Jon Ludlam <jon@frankenelmo.uk.xensource.com>  Wed, 07 Dec 2011 17:32:27 +0000
+
 xcp-vncterm (0.1-1) unstable; urgency=low
 
   * Initial release (Closes: #649285)
