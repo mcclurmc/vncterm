@@ -1,12 +1,13 @@
 Source: xcp-vncterm
 Section: utils
 Priority: extra
-Maintainer: Jon Ludlam <jonathan.ludlam@eu.citrix.com>
-Build-Depends: debhelper (>= 8.0.0), libxen-dev
+Maintainer: PKG-Xen Devel <pkg-xen-devel@lists.alioth.debian.org>
+Uploaders: Jon Ludlam <jonathan.ludlam@eu.citrix.com>, Thomas Goirand <zigo@debian.org>
+Build-Depends: debhelper (>= 8), libxen-dev
 Standards-Version: 3.9.2
 Homepage: http://xen.org/products/cloudxen.html
-#Vcs-Git: git://github.com/jonludlam/vncterm.git
-#Vcs-Browser: https://github.com/jonludlam/vncterm
+Vcs-Git: http://github.com/jonludlam/vncterm.git
+Vcs-Browser: https://github.com/jonludlam/vncterm
 
 Package: xcp-vncterm
 Architecture: any
