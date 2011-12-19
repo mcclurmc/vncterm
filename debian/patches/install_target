@@ -1,3 +1,5 @@
+Description: Adds a "install" target in main Makefile.
+Forwarded: not-needed.
 --- a/Makefile
 +++ b/Makefile
 @@ -59,3 +59,7 @@

@@ -1,3 +1,5 @@
+Description: Removes useless code that is otherwise producing gcc warning.
+Forwarded: not-needed.
 --- a/libvnc/vnc.c
 +++ b/libvnc/vnc.c
 @@ -707,17 +707,11 @@

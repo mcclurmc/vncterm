@@ -1,3 +1,5 @@
+Description: Fixes path to the Debian qemu package, and not the (normally) Xen shipped Qemu.
+Forwarded: not-needed.
 --- a/libvnc/vnc.h
 +++ b/libvnc/vnc.h
 @@ -17,7 +17,7 @@
