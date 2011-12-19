@@ -6,8 +6,8 @@ Uploaders: Jon Ludlam <jonathan.ludlam@eu.citrix.com>, Thomas Goirand <zigo@debi
 Build-Depends: debhelper (>= 8), libxen-dev
 Standards-Version: 3.9.2
 Homepage: http://xen.org/products/cloudxen.html
-Vcs-Git: http://github.com/jonludlam/vncterm.git
-Vcs-Browser: https://github.com/jonludlam/vncterm
+Vcs-Git: http://anonscp.debian.org/git/pkg-xen/xcp-vncterm.git
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-xen/xcp-vncterm.git
 
 Package: xcp-vncterm
 Architecture: any
