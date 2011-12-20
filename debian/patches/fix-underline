@@ -1,3 +1,10 @@
+Fix segfault on qemu font underline codepath
+
+This patch came from qemu upstream. The problem was that a magic number was
+entered wrong, and dereferenced an array way out of bounds.
+
+Signed-off-by: Mike McClurg <mike.mcclurg@citrix.com>
+
 diff --git a/console.c b/console.c
 index c6b6019..db51822 100644
 --- a/console.c
