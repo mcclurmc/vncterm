@@ -1,5 +1,12 @@
 xcp-vncterm (0.1-2) unstable; urgency=low
 
+  * Filesystem hierarchy compliance changes
+  * Apply upstream qemu patch to fix segfault
+
+ -- Jon Ludlam <jonathan.ludlam@eu.citrix.com>  Tue, 20 Dec 2011 09:04:26 +0000
+
+xcp-vncterm (0.1-1) unstable; urgency=low
+
   * Initial release (Closes: #649285)
 
  -- Jon Ludlam <jonathan.ludlam@eu.citrix.com>  Tue, 19 Jul 2011 23:38:14 +0100
