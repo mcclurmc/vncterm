@@ -3,6 +3,7 @@ xcp-vncterm (0.1-2) unstable; urgency=low
   * vncterm is moved to: /usr/lib/xcp/lib (instead of
   /usr/lib/xen-common/xapi/libexec/vncterm).
   * Apply upstream qemu patch to fix segfault
+  * Added a watch file.
 
  -- Jon Ludlam <jonathan.ludlam@eu.citrix.com>  Tue, 20 Dec 2011 09:04:26 +0000
 
