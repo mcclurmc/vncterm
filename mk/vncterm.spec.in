@@ -2,7 +2,7 @@ Summary: vncterm tty to vnc utility
 Name: vncterm
 Version: @VNCTERM_VERSION@
 Release: @VNCTERM_RELEASE@
-License: Proprietary
+License: GPL
 Group: System/Hypervisor
 Source0: %{name}-%{version}.tar.bz2
 Patch0: %{name}-development.patch
