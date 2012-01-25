@@ -14,7 +14,7 @@ $(MY_OBJ_DIR)/version.inc:
 	rm -f $(MY_OBJ_DIR)/version.inc
 	$(version-makefile) > $@
 	$(call hg_cset_number,vncterm) >> $@
-	echo VNCTERM_VERSION := \$$\(PRODUCT_VERSION\) >> $@
+	echo VNCTERM_VERSION := \$$\(PLATFORM_VERSION\) >> $@
 	echo VNCTERM_RELEASE := \$$\(CSET_NUMBER\) >> $@
 
 CHANGELOG_DATE    := $(shell LANG=C date +"%a %b %d %Y")
