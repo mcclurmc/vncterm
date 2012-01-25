@@ -1874,6 +1874,7 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
     int reuse_addr, ret;
     socklen_t addrlen;
     VncState *vs;
+    in_port_t port = 0;
 
     vs = qemu_mallocz(sizeof(VncState));
     if (!vs)
@@ -1930,17 +1931,20 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
 	}
     } else
 #endif
+ again:
     if (addr->sa_family == AF_INET) {
 	iaddr = (struct sockaddr_in *)addr;
 	addrlen = sizeof(struct sockaddr_in);
+
+	if (!port) {
+	    port = ntohs(iaddr->sin_port) + 5900;
+	}
 
 	vs->lsock = socket(PF_INET, SOCK_STREAM, 0);
 	if (vs->lsock == -1) {
 	    fprintf(stderr, "Could not create socket\n");
 	    exit(1);
 	}
-
-	iaddr->sin_port = htons(ntohs(iaddr->sin_port) + 5900);
 
 	reuse_addr = 1;
 	ret = setsockopt(vs->lsock, SOL_SOCKET, SO_REUSEADDR,
@@ -1957,19 +1961,29 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
       ret = fcntl(vs->lsock, F_GETFD, NULL);
       fcntl(vs->lsock, F_SETFD, ret | FD_CLOEXEC);
 
- again:
-    while (bind(vs->lsock, addr, addrlen) == -1) {
-	if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET) {
-	    iaddr->sin_port = htons(ntohs(iaddr->sin_port) + 1);
-	    continue;
+    do {
+	iaddr->sin_port = htons(port);
+	ret = bind(vs->lsock, addr, addrlen);
+	if (ret == -1) {
+	    if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET) {
+		port++;
+	    }
+	    else {
+	      break;
+	    }
 	}
+    } while (ret == -1);
+    if (ret == -1) {
 	fprintf(stderr, "bind() failed\n");
 	exit(1);
     }
 
     if (listen(vs->lsock, 1) == -1) {
-	if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET)
+	if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET) {
+	    close(vs->lsock);
+	    port++;
 	    goto again;
+	}
 	fprintf(stderr, "listen() failed\n");
 	exit(1);
     }
