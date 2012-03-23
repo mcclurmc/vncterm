@@ -430,35 +430,36 @@ static void vnc_write_pixels_copy(struct VncClientState *vcs, void *pixels,
 static void vnc_convert_pixel(struct VncClientState *vcs, uint8_t *buf,
                   uint32_t v)
 {
-    uint8_t r, g, b;
+    uint32_t r, g, b;
     r = ((v >> vcs->red_shift1) & vcs->red_max1) * (vcs->red_max + 1) / (vcs->red_max1 + 1);
     g = ((v >> vcs->green_shift1) & vcs->green_max1) * (vcs->green_max + 1) / (vcs->green_max1 + 1);
     b = ((v >> vcs->blue_shift1) & vcs->blue_max1) * (vcs->blue_max + 1) / (vcs->blue_max1 + 1);
+    v = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
     switch(vcs->pix_bpp) {
     case 1:
-        buf[0] = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
+        buf[0] = (uint8_t) v;
         break;
     case 2:
-    {
-        uint16_t *p = (uint16_t *) buf;
-        *p = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
         if (vcs->pix_big_endian) {
-            *p = htons(*p);
+            buf[0] = v >> 8;
+            buf[1] = v;
+        } else {
+            buf[1] = v >> 8;
+            buf[0] = v;
         }
-    }
         break;
     default:
     case 4:
         if (vcs->pix_big_endian) {
-            buf[0] = 255;
-            buf[1] = r;
-            buf[2] = g;
-            buf[3] = b;
+            buf[0] = v >> 24;
+            buf[1] = v >> 16;
+            buf[2] = v >> 8;
+            buf[3] = v;
         } else {
-            buf[0] = b;
-            buf[1] = g;
-            buf[2] = r;
-            buf[3] = 255;
+            buf[3] = v >> 24;
+            buf[2] = v >> 16;
+            buf[1] = v >> 8;
+            buf[0] = v;
         }
         break;
     }
