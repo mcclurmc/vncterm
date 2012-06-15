@@ -844,7 +844,7 @@ static int vnc_client_io_error(struct VncClientState *vcs, int ret,
 {
     struct VncState *vs = vcs->vs;
 
-    if (ret != 0 && ret != -1)
+    if (ret > 0)
 	return ret;
 
     if (ret == -1 && (last_errno == EINTR || last_errno == EAGAIN))
