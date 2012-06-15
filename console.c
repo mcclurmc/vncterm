@@ -2267,12 +2267,12 @@ static void kbd_send_chars(void *opaque)
 
 static int cmputfents(const void *p1, const void *p2)
 {
-    short a,b;
+    int a,b;
 
-    a=*(short*)p1;
-    b=*(short*)p2;
+    a=*(int*)p1;
+    b=*(int*)p2;
 
-    return a-b;
+    return (a&0xffff)-(b&0xffff);
 }
 
 static void prepare_console_maps()
