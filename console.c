@@ -730,19 +730,14 @@ static void update_xy(TextConsole *s, int x, int y)
 {
     TextCell *c;
 
-    if (y<0 || x<0 || x>=s->width || y>=s->height)
+    if (y<0 || x<0 || x>=s->width || y>=s->height || s != active_console)
 	return;
 
-    if (s == active_console) {
-
-        if (y < s->height) {
-            c = &s->cells[screen_to_virtual(s,y) * s->width + x];
-            vga_putcharxy(s, x, y, c->ch, 
-                          &(c->t_attrib), &(c->c_attrib));
-            s->ds->dpy_update(s->ds, x * FONT_WIDTH, y * FONT_HEIGHT, 
-			      FONT_WIDTH, FONT_HEIGHT);
-        }
-    }
+    c = &s->cells[screen_to_virtual(s,y) * s->width + x];
+    vga_putcharxy(s, x, y, c->ch,
+                  &(c->t_attrib), &(c->c_attrib));
+    s->ds->dpy_update(s->ds, x * FONT_WIDTH, y * FONT_HEIGHT,
+		      FONT_WIDTH, FONT_HEIGHT);
 }
 /*
   update whole rectangle of characters, as visible on screen
