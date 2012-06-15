@@ -121,6 +121,7 @@ write_or_chunk(struct chunked_stream *s, uint8_t *buf, int len)
     while (s->chunk) {
 	done = write(s->fd, s->chunk->data + s->chunk->offset,
 		     s->chunk->len - s->chunk->offset);
+        if (done < 0) return; /* XXX error */
 	s->chunk->offset += done;
 	if (s->chunk->offset == s->chunk->len) {
 	    s->chunk = s->chunk->next;
@@ -131,6 +132,7 @@ write_or_chunk(struct chunked_stream *s, uint8_t *buf, int len)
     }
     if (s->chunk == NULL) {
 	done = write(s->fd, buf, len);
+        if (done < 0) return; /* XXX error */
 	if (done == len)
 	    return;
     }
