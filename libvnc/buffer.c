@@ -34,6 +34,10 @@ void buffer_reset(Buffer *buffer)
 
 void buffer_append(Buffer *buffer, const void *data, size_t len)
 {
+    if (buffer->offset + len > buffer->capacity) {
+	fprintf(stderr, "vnc: buffer overflow prevented\n");
+	exit(1);
+    }
     memcpy(buffer->buffer + buffer->offset, data, len);
     buffer->offset += len;
 }
