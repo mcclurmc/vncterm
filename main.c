@@ -1175,4 +1175,7 @@ static void _write_port_to_xenstore(char *xenstore_path, char *type, int no)
     ret = xs_write(xs, XBT_NULL, path, port, strlen(port));
     if (!ret)
         err(1, "xs_write");
+
+    free(port);
+    free(path);
 }
