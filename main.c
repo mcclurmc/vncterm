@@ -33,6 +33,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sched.h>
 
 #include <sys/poll.h>
 #include <sys/socket.h>
@@ -66,6 +67,10 @@
 
 #define FONTH	16
 #define FONTW	8
+
+#ifndef CLONE_NEWNET
+#define CLONE_NEWNET 0x40000000
+#endif
 
 char vncpasswd[64];
 unsigned char challenge[AUTHCHALLENGESIZE];
@@ -952,6 +957,9 @@ main(int argc, char **argv, char **envp)
             close(socks[1]);
             privsep_fd = socks[0];
             xs_daemon_close(xs);
+
+            if (!cmd_mode)
+                unshare(CLONE_NEWNET);
 
             rlim.rlim_cur = 64 * 1024 * 1024;
             rlim.rlim_max = 64 * 1024 * 1024 + 64;
