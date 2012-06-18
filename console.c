@@ -1945,10 +1945,10 @@ static void console_putchar(TextConsole *s, int ch)
                 update_rect(s, 0, s->y, s->width, s->sr_bottom - s->y - s->esc_params[0] + 1);
                 clear(s, 0, s->sr_bottom - s->esc_params[0] + 1, s->width, s->esc_params[0]);
 		break;
-	    case 'P':		/* DCH */
+	    case 'P':		/* DCH - delete character */
 		console_dch(s);
 		break;
-            case 'X':
+            case 'X':		/* ECH - erase character */
             {
                 int i = 0, a, nc = 0;
                 TextCell *c = &s->cells[screen_to_virtual(s,s->y) * s->width + s->x]; 
@@ -2607,7 +2607,7 @@ static TextConsole *new_console(DisplayState *ds, int text)
     if (!active_console || (active_console->text_console && !text))
         active_console = s;
     s->ds = ds;
-    s->cells = 0;
+    s->cells = NULL;
     s->text_console = text;
     ds->graphic_mode = text ? 0 : 1;
     if (text) {
