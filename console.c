@@ -172,7 +172,9 @@ struct TextConsole {
     /* maximum possible height (backscroll)*/
     int total_height;
 
-    /* current cursor position */
+    /* current cursor position in screen coordinate
+     * always 0 <= x < width and 0 <= y <= height
+     */
     int x, y;
 
     /* saved cursor position */
@@ -184,11 +186,11 @@ struct TextConsole {
     /* screen's 1st line (the top line)*/
     int y_base;
 
-    /* this is ofset that is substracted from y_base 
+    /* this is offset that is substracted from y_base
        and points to currently displayed screen */
     int y_scroll;
 
-    /* scroll region */
+    /* scroll region in screen coordinate */
     int sr_top, sr_bottom;
 
     /* self explanatory */
