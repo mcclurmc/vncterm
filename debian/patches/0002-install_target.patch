@@ -1,0 +1,21 @@
+From: PKG-Xen Devel <pkg-xen-devel@lists.alioth.debian.org>
+Date: Tue, 21 Aug 2012 16:41:30 +0100
+Subject: install_target
+
+---
+ Makefile |    4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Makefile b/Makefile
+index 8ef431f..a8643d3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -59,3 +59,7 @@ TAGS:
+ 
+ print-%:
+ 	echo $($*)
++
++install:
++	mkdir -p $(DESTDIR)/usr/lib/xcp/lib/
++	cp vncterm $(DESTDIR)/usr/lib/xcp/lib/
+-- 

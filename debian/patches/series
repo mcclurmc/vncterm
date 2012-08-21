@@ -1,4 +1,4 @@
-keymaps_dir
-install_target
-fix-build
-fix-underline
+0001-keymaps_dir.patch
+0002-install_target.patch
+0003-fix-build.patch
+0004-fix-underline.patch

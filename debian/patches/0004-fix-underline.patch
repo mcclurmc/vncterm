@@ -1,12 +1,19 @@
+From: PKG-Xen Devel <pkg-xen-devel@lists.alioth.debian.org>
+Date: Tue, 21 Aug 2012 16:41:30 +0100
+Subject: fix-underline
+
 Fix segfault on qemu font underline codepath
 
 This patch came from qemu upstream. The problem was that a magic number was
 entered wrong, and dereferenced an array way out of bounds.
 
 Signed-off-by: Mike McClurg <mike.mcclurg@citrix.com>
+---
+ console.c |    6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/console.c b/console.c
-index c6b6019..db51822 100644
+index aa70a1c..9a5d19c 100644
 --- a/console.c
 +++ b/console.c
 @@ -620,7 +620,7 @@ static void vga_putcharxy(TextConsole *s, int x, int y, int ch,
@@ -36,3 +43,4 @@ index c6b6019..db51822 100644
              }
              ((uint32_t *)d)[0] = (-((font_data >> 7)) & xorcol) ^ bgcol;
              ((uint32_t *)d)[1] = (-((font_data >> 6) & 1) & xorcol) ^ bgcol;
+-- 

@@ -1,0 +1,22 @@
+From: PKG-Xen Devel <pkg-xen-devel@lists.alioth.debian.org>
+Date: Tue, 21 Aug 2012 16:41:30 +0100
+Subject: fix-build
+
+---
+ Makefile |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index a8643d3..55edfdc 100644
+--- a/Makefile
++++ b/Makefile
+@@ -8,7 +8,7 @@ LIBS := libvnc/libvnc.a
+ CFLAGS  = -I$(shell pwd)/include
+ # _GNU_SOURCE for asprintf.
+ CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE 
+-CFLAGS += -Wall -Werror -g -O1 
++CFLAGS += -Wall -g -O1
+ 
+ ifeq ($(shell uname),Linux)
+ LDLIBS := -lutil -lrt
+-- 
