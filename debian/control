@@ -4,7 +4,7 @@ Priority: extra
 Maintainer: PKG-Xen Devel <pkg-xen-devel@lists.alioth.debian.org>
 Uploaders: Jon Ludlam <jonathan.ludlam@eu.citrix.com>, Thomas Goirand <zigo@debian.org>
 Build-Depends: debhelper (>= 8), libxen-dev
-Standards-Version: 3.9.2
+Standards-Version: 3.9.3
 Homepage: http://xen.org/products/cloudxen.html
 Vcs-Git: http://anonscp.debian.org/git/pkg-xen/xcp-vncterm.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-xen/xcp-vncterm.git
