@@ -447,8 +447,6 @@ static void vnc_convert_pixel(struct VncClientState *vcs, uint8_t *buf,
             buf[1] = v >> 8;
             buf[0] = v;
         }
-        *cur = *cur + 2;
-    }
         break;
     default:
     case 4:
@@ -458,12 +456,11 @@ static void vnc_convert_pixel(struct VncClientState *vcs, uint8_t *buf,
             buf[2] = v >> 8;
             buf[3] = v;
         } else {
-            (*cur)[0] = b;
-            (*cur)[1] = g;
-            (*cur)[2] = r;
-            (*cur)[3] = 255;
+            buf[3] = v >> 24;
+            buf[2] = v >> 16;
+            buf[1] = v >> 8;
+            buf[0] = v;
         }
-        *cur = *cur + 4;
         break;
     }
 }
@@ -500,17 +497,6 @@ static void vnc_write_pixels_generic(struct VncClientState *vcs,
     } else {
         fprintf(stderr, "vnc_write_pixels_generic: VncState color depth not supported\n");
     }
-
-    vnc_write_u16(vcs, 0);
-    vnc_write_u16(vcs, 1); /* number of rects */
-
-    /* width 8, height - number of bytes in mask, hotspot in the middle */
-    vnc_framebuffer_update(vcs, 8 / 2, sizeof(cursorbmsk) / 2, 8,
-               sizeof(cursorbmsk), -239);
-    vnc_write_pixels_copy(vcs, cursorcur, size);
-    vnc_write(vcs, cursorbmsk, sizeof(cursorbmsk));
-
-    free(cursorcur);
 }
 
 unsigned char cursorbmsk[16] = {
