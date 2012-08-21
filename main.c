@@ -163,10 +163,10 @@ static struct timer **timers_tail = &timers;
 uint64_t
 get_clock(void)
 {
-    struct timeval tv;
-    if (gettimeofday(&tv, NULL) != 0)
-	err(1, "gettimeofday");
-    return (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+	    err(1, "clock_gettime");
+    return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
 void *
@@ -242,25 +242,13 @@ struct process {
 };
 
 void
-stdin_to_process(void *opaque)
-{
-    struct process *p = opaque;
-    uint8_t buf[16];
-    int count;
-
-    count = read(0, buf, 16);
-    if (count > 0)
-	write(p->fd, buf, count);
-}
-
-void
 process_read(void *opaque)
 {
     struct process *p = opaque;
     uint8_t buf[16];
     int count;
 
-    count = read(p->fd, buf, 16);
+    count = read(p->fd, buf, sizeof(buf));
     if (count > 0)
     {
         p->console->chr_write(p->console, buf, count);
@@ -317,6 +305,7 @@ void
 end_process(struct process *p)
 {
     close(p->fd);
+    free(p);
 }
 
 static void
@@ -351,7 +340,7 @@ pty_read(void *opaque)
     uint8_t buf[16];
     int count;
 
-    count = read(pty->fd, buf, 16);
+    count = read(pty->fd, buf, sizeof(buf));
     if (count > 0)
     {
     	pty->console->chr_write(pty->console, buf, count);
@@ -527,30 +516,24 @@ static void xenstore_write_statefile(const char *filepath)
 
 static void privsep_xenstore_statefile()
 {
-    size_t l;
-    char *filepath = NULL;
+    uint32_t l;
+    char filepath[256+1];
 
     must_read(parent_fd, &l, sizeof(l));
     if (l == 0 || l > 256) {
         errno = EINVAL;
-        goto done;
+        return;
     }
-    filepath = malloc(l+1);
-    if (!filepath)
-        goto done;
     must_read(parent_fd, filepath, l);
     filepath[l] = 0;
 
     xenstore_write_statefile(filepath);
-
-done:
-    free(filepath);
 }
 
 static void privsep_statefile_completed(const char *name)
 {
     enum privsep_opcode cmd;
-    int l;
+    uint32_t l;
 
     if (privsep_fd <= 0) {
         xenstore_write_statefile(name);
@@ -603,6 +586,12 @@ static void parent_handle_sigchld(int num)
             exit(0);
     } else
         signal(SIGCHLD, parent_handle_sigchld);
+}
+
+static void parent_handle_sigterm(int num)
+{
+    kill(child_pid, SIGTERM);
+    signal(SIGTERM, parent_handle_sigterm);
 }
 
 int
@@ -938,6 +927,7 @@ main(int argc, char **argv, char **envp)
             parent_fd = socks[1];
             signal(SIGUSR1, parent_handle_sigusr1);
             signal(SIGCHLD, parent_handle_sigchld);
+            signal(SIGTERM, parent_handle_sigterm);
 
             while (1) {
                 must_read(parent_fd, &opcode, sizeof(opcode));
@@ -964,6 +954,15 @@ main(int argc, char **argv, char **envp)
             rlim.rlim_cur = 64 * 1024 * 1024;
             rlim.rlim_max = 64 * 1024 * 1024 + 64;
             setrlimit(RLIMIT_FSIZE, &rlim);
+
+            /* limit memory ro 32MB */
+            rlim.rlim_cur = 32 * 1024 * 1024;
+            rlim.rlim_max = 32 * 1024 * 1024;
+            setrlimit(RLIMIT_AS, &rlim);
+
+            rlim.rlim_cur = 256;
+            rlim.rlim_max = 256;
+            setrlimit(RLIMIT_NOFILE, &rlim);
 
             chdir(root_directory);
             chroot(root_directory);
@@ -1108,9 +1107,13 @@ main(int argc, char **argv, char **envp)
 	    err(1, "select failed");
 #endif
 	}
-	if (ret == 0) {
-	    now = get_clock();
-	    while (timers && timers->timeout < now) {
+
+        /* prevent DoS */
+        alarm(20);
+
+        /* Test for timers. Test even if not timeout to avoid situations where we have always data */
+	now = get_clock();
+	while (timers && timers->timeout < now) {
 		t = timers;
 		timers = t->next;
 		if (timers == NULL)
@@ -1120,8 +1123,8 @@ main(int argc, char **argv, char **envp)
 		*timers_tail = t;
 		timers_tail = &t->next;
 		t->callback(t->opaque);
-	    }
 	}
+
 	if (ret > 0) {
 	    ioh = iohandlers;
 	    for (ioh = iohandlers; ioh != NULL; ioh = next) {
@@ -1162,6 +1165,8 @@ main(int argc, char **argv, char **envp)
 		    ioh->fd_read(ioh->opaque);
 	    }
 	}
+
+        alarm(0);
     }
 
     return 0;

@@ -87,7 +87,7 @@ enum TTYState {
     TTY_STATE_G1,
     TTY_STATE_CSI,
     TTY_STATE_NONSTD,
-    TTY_STATE_PALETTE
+    TTY_STATE_PALETTE,
 /*
 XXX to be done
     TTY_STATE_HASH,
@@ -95,6 +95,7 @@ XXX to be done
     TTY_STATE_GETPARS,
     TTY_STATE_GOTPARS,
 */
+    TTY_STATE_MAX = TTY_STATE_PALETTE
 };
 
 struct stream_chunk
@@ -112,24 +113,27 @@ struct chunked_stream {
     struct stream_chunk **chunk_tail;
 };
 
-void
+static void
 write_or_chunk(struct chunked_stream *s, uint8_t *buf, int len)
 {
     int done;
     struct stream_chunk *chunk;
 
     while (s->chunk) {
-	done = write(s->fd, s->chunk->data + s->chunk->offset,
-		     s->chunk->len - s->chunk->offset);
+	chunk = s->chunk;
+	done = write(s->fd, chunk->data + chunk->offset,
+		     chunk->len - chunk->offset);
         if (done < 0) return; /* XXX error */
-	s->chunk->offset += done;
-	if (s->chunk->offset == s->chunk->len) {
-	    s->chunk = s->chunk->next;
+	chunk->offset += done;
+	if (chunk->offset == chunk->len) {
+	    s->chunk = chunk->next;
+	    free(chunk);
 	    if (s->chunk == NULL)
 		s->chunk_tail = &s->chunk;
 	} else
 	    break;
     }
+    done = 0;
     if (s->chunk == NULL) {
 	done = write(s->fd, buf, len);
         if (done < 0) return; /* XXX error */
@@ -259,20 +263,20 @@ typedef struct TextConsole TextConsole;
 static TextConsole *active_console;
 static TextConsole *consoles[MAX_CONSOLES];
 static int nb_consoles = 0;
-void set_color_table(DisplayState *ds); 
+static void set_color_table(DisplayState *ds);
 
 #define clip_y(s, v) {			\
-	if ((s)->v < 0)			\
-	    (s)->v = 0;			\
 	if ((s)->v >= (s)->height)	\
 	    (s)->v = (s)->height - 1;	\
+	if ((s)->v < 0)			\
+	    (s)->v = 0;			\
     }
 
 #define clip_x(s, v) {			\
-	if ((s)->v < 0)			\
-	    (s)->v = 0;			\
 	if ((s)->v >= (s)->width)	\
 	    (s)->v = (s)->width - 1;	\
+	if ((s)->v < 0)			\
+	    (s)->v = 0;			\
     }
 
 #define clip_xy(s,x,y) {clip_x(s,x);clip_y(s,y);}
@@ -552,15 +556,20 @@ static void vga_scroll(TextConsole *s, int n)
 {
     int h;
 
-    h = s->g_height-(abs(n)*FONT_HEIGHT);
-
     if (n>0) {	// up
-	vga_bitblt(s->ds, 0, n*FONT_HEIGHT, 0, 0, s->g_width, h );
-	vga_fill_rect(s->ds, 0, h, s->g_width, (abs(n)*FONT_HEIGHT), s->t_attrib.bgcol);
+        if (n > s->height) n = s->height;
+        n *= FONT_HEIGHT;
+        h = s->g_height - n;
+	vga_bitblt(s->ds, 0, n, 0, 0, s->g_width, h);
+	vga_fill_rect(s->ds, 0, h, s->g_width, n, s->t_attrib.bgcol);
     }
     else {	// down
-	vga_bitblt(s->ds, 0, 0, 0, -n*FONT_HEIGHT, s->g_width, h );
-	vga_fill_rect(s->ds, 0, 0, s->g_width, (abs(n)*FONT_HEIGHT), s->t_attrib.bgcol);
+        n = -n;
+        if (n > s->height) n = s->height;
+        n *= FONT_HEIGHT;
+        h = s->g_height - n;
+	vga_bitblt(s->ds, 0, 0, 0, n, s->g_width, h);
+	vga_fill_rect(s->ds, 0, 0, s->g_width, n, s->t_attrib.bgcol);
     }
 }
 
@@ -766,6 +775,7 @@ static void set_cursor(TextConsole *s, int x, int y)
     s->y = y;
     s->wrapped = 0;
     s->x = x;
+    clip_xy(s, x, y);
 }
 
 static void console_show_cursor(TextConsole *s, int show)
@@ -895,21 +905,6 @@ highlight(TextConsole *s, int from_x, int from_y, int to_x, int to_y, int highli
     }
 }
 
-/*
-static void
-refresh(TextConsole *s, int y, int x)
-{
-    TextCell *c;
-
-    if (x < 0 || y < 0 || x >= s->width || y >= s->height)
-	return;
-
-    c = &s->cells[cy(y) * s->width + x];
-    vga_putcharxy(s, x, y, c->ch, &(c->t_attrib), &(c->c_attrib));
-    s->ds->dpy_update(s->ds, x * FONT_WIDTH, y * FONT_HEIGHT,
-		      FONT_WIDTH, FONT_HEIGHT);
-}
-*/
 int
 mouse_is_absolute(void *opaque)
 {
@@ -943,11 +938,11 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
     TextCell *c;
     int m_fy, i;
 
-    if (to_x <= from_x)
-	return;
-
     if (to_x > s->width)
 	to_x = s->width;
+
+    if (0 > from_x || from_x >= to_x)
+	return;
 
     m_fy = screen_to_virtual(s, line);
     c = &s->cells[(m_fy * s->width)+from_x];
@@ -958,6 +953,8 @@ static void clear_line(TextConsole *s, int line, int from_x, int to_x)
 	c->t_attrib.fgcol = s->t_attrib.fgcol;
 	c->t_attrib.bgcol = s->t_attrib.bgcol;
         c->c_attrib.wrapped = s->c_attrib_default.wrapped;
+        c->c_attrib.columns = 1;
+        c->c_attrib.spanned = 0;
 	c++;
    }
 
@@ -977,23 +974,23 @@ static void clear(TextConsole *s, int from_x, int start_y, int to_x, int height)
 /* this just scrolls view */
 static void console_scroll(TextConsole *s, int ydelta)
 {
+    int y_scroll;
+
     if (!s || !s->text_console)
         return;
 
-    s->y_scroll += -ydelta;
+    y_scroll = s->y_scroll - ydelta;
 
-    if (s->y_scroll > s->backscroll) {
-	ydelta += (s->y_scroll - s->backscroll);
-	s->y_scroll = s->backscroll;
-    }
+    if (y_scroll > s->backscroll)
+	y_scroll = s->backscroll;
 
-    if (s->y_scroll < 0 ) {
-	ydelta += s->y_scroll;
-	s->y_scroll = 0;
-    }
+    if (y_scroll < 0)
+	y_scroll = 0;
 
+    ydelta = s->y_scroll - y_scroll;
     if (ydelta == 0)
 	return;
+    s->y_scroll = y_scroll;
 
     if (abs(ydelta) < s->height) {
 	vga_scroll(s, ydelta);
@@ -1015,6 +1012,9 @@ static void scroll_text_cells(TextConsole* s, int f, int t, int by)
 {
     TextCell* fc, *tc;
     int m_fy, m_ty, direction;
+
+    /* prevent zero division*/
+    if (by == 0) return;
 
     direction = by/abs(by);
     by = abs(by);
@@ -1143,8 +1143,12 @@ mouse_event(int dx, int dy, int dz, int buttons_state, void *opaque)
 	    text = get_text(s, s->selections[0].startx, s->selections[0].starty,
 			   s->selections[0].endx, s->selections[0].endy);
 
-	    if ( text != NULL && strlen(text) )
-		s->ds->dpy_set_server_text(s->ds, text);
+	    if (text != NULL) {
+		if (strlen(text))
+		    s->ds->dpy_set_server_text(s->ds, text);
+		else
+		    free(text);
+	    }
 
 	    /* set flag, copy current selection to old one */
 	    s->selecting = 0;
@@ -1213,10 +1217,11 @@ static void console_put_lf(TextConsole *s)
 {
     scroll_to_base(s);
 
-    set_cursor(s, s->x, s->y + 1);
-    if (s->y > s->sr_bottom) {
-        set_cursor(s, s->x, s->sr_bottom);
+    if (s->y + 1 > s->sr_bottom) {
 	scroll_up(s, 1);
+        set_cursor(s, s->x, s->sr_bottom);
+    } else {
+        set_cursor(s, s->x, s->y + 1);
     }
 }
 
@@ -1227,10 +1232,11 @@ static void console_put_cr(TextConsole *s)
 
 static void console_put_ri(TextConsole *s)
 {
-    set_cursor(s, s->x, s->y - 1);
-    if (s->y < s->sr_top) {
-	set_cursor(s, s->x, s->sr_top);
+    if (s->y - 1 < s->sr_top) {
 	scroll_down(s, 1);
+	set_cursor(s, s->x, s->sr_top);
+    } else {
+        set_cursor(s, s->x, s->y - 1);
     }
 }
 
@@ -1412,6 +1418,11 @@ static void do_putchar_utf(TextConsole *s, wchar_t ch, char glyph)
     nc = wcwidth(ch);
     dprintf("utf-8: %d columns char\n", nc);
     if (nc < 0) nc = 1;
+    /* assure we have enough space to put our character, do no split in two lines */
+    if (s->x + nc > s->width) {
+	set_cursor(s, 0, s->y);
+	console_put_lf(s);
+    }
     for (i = 0; i < nc; i++) {
         put_norm(s, glyph);
         c = &s->cells[screen_to_virtual(s, s->y) * s->width + s->x + i];
@@ -1464,14 +1475,14 @@ static int handle_params(TextConsole *s, int ch)
 
     dprintf("putchar csi %02x '%c'\n", ch, ch > 0x1f ? ch : ' ');
     if (ch >= '0' && ch <= '9') {
-	if (s->nb_esc_params < MAX_ESC_PARAMS) {
+	if (s->nb_esc_params < MAX_ESC_PARAMS && (s->esc_params[s->nb_esc_params] < 10000)) {
 	    s->esc_params[s->nb_esc_params] = 
 		s->esc_params[s->nb_esc_params] * 10 + ch - '0';
 	}
 	s->has_esc_param = 1;
 	return 0;
     } else {
-	if (s->has_esc_param)
+	if (s->has_esc_param && s->nb_esc_params < MAX_ESC_PARAMS)
 	    s->nb_esc_params++;
 	s->has_esc_param = 0;
 	if (ch == '?') {
@@ -1497,48 +1508,46 @@ static void reset_params(TextConsole *s)
 
     for(i=0;i<MAX_ESC_PARAMS;i++)
 	s->esc_params[i] = 0;
+    s->has_esc_param = 0;
     s->nb_esc_params = 0;
     s->has_qmark = 0;
 }
 
 static void console_dch(TextConsole *s)
 {
-    TextCell *c, *d, *t;
-    int x, a, nc, i;
+    TextCell *row;
+    int x, nc;
 
-    if (s->esc_params[0] == 0)
-	s->esc_params[0] = 1;
-    a = s->nb_esc_params ? s->esc_params[0] : 1;
+    nc = s->esc_params[0];
+    if (nc == 0)
+	nc = 1;
 
-    c = &s->cells[screen_to_virtual(s,s->y) * s->width + s->x];
-    d = c+a;
-    
-    nc = 0;
-    i = 0;
-    t = c;
-    while (t->c_attrib.spanned) { 
-        t--;
-        c--;
-    }
-    while (i < a) {
-        nc = nc + t->c_attrib.columns;
-        t = t + t->c_attrib.columns;
-        i++;
-    }
-    for(x = s->x; x < s->width - nc; x++) {
-	c->ch = d->ch;
-	c->t_attrib = d->t_attrib;
-	c++;
-	d++;
+    row = &s->cells[screen_to_virtual(s,s->y) * s->width];
+
+    /* move to first column of current character */
+    for (x = s->x; x > 0 && row[x].c_attrib.spanned; --x)
+        continue;
+
+    /* skip nc characters */
+    for (; nc > 0 && x < s->width; --nc)
+        x += row[x].c_attrib.columns;
+
+    /* compute as many columns we skipped */
+    if (x > s->width)
+        x = s->width - 1;
+    nc = x - s->x;
+
+    for (x = s->x; x + nc < s->width; ++x) {
+        row[x].ch = row[x + nc].ch;
+	row[x].t_attrib = row[x + nc].t_attrib;
 	update_xy(s, x, s->y);
     }
     for (; x < s->width; x++) {
-        c->ch = ' ';
-        c->t_attrib = s->t_attrib_default;
-        c->t_attrib.fgcol = s->t_attrib.fgcol;
-        c->t_attrib.bgcol = s->t_attrib.bgcol;
-        c->c_attrib.wrapped = s->c_attrib_default.wrapped;
-        c++;
+        row[x].ch = ' ';
+        row[x].t_attrib = s->t_attrib_default;
+        row[x].t_attrib.fgcol = s->t_attrib.fgcol;
+        row[x].t_attrib.bgcol = s->t_attrib.bgcol;
+        row[x].c_attrib.wrapped = s->c_attrib_default.wrapped;
         update_xy(s, x, s->y);
     }
 }
@@ -1546,8 +1555,7 @@ static void console_dch(TextConsole *s)
 static void console_putchar(TextConsole *s, int ch)
 {
     TextCell *c, *d;
-    int y1, i, x, x1, a;
-    int x_, y_;
+    int i, x, y, x1, y1, a;
 
     dprintf("putchar %02x '%c' state:%d\n", ch, ch > 0x1f ? ch : ' ', s->state);
     if (s->unicodeIndex > 0 && (ch & 0xc0) == 0x80) goto unicode;
@@ -1567,16 +1575,16 @@ static void console_putchar(TextConsole *s, int ch)
             break;
         case BS:
 	    dprintf("BS\n");
-            if (s->x > 0) 
-                set_cursor(s, s->x - 1, s->y);
+            set_cursor(s, s->x - 1, s->y);
             break;
         case HT:
 	    dprintf("HT\n");
-            if (s->x + (8 - (s->x % 8)) > s->width) {
+	    x = s->x + (8 - (s->x % 8));
+            if (x > s->width) {
                 set_cursor(s, 0, s->y);
                 console_put_lf(s);
             } else {
-                set_cursor(s, s->x + (8 - (s->x % 8)), s->y);
+                set_cursor(s, x, s->y);
             }
             break;
         case LF:
@@ -1636,20 +1644,8 @@ static void console_putchar(TextConsole *s, int ch)
 		    }
 		    mbrtowc(&wc, s->unicodeData, s->unicodeLength, NULL);
                     switch (s->unicodeLength) {
-                        case 2:
-                           ch = (s->unicodeData[0] & 0x1f);
-                            break;
-                        case 3:
-                           ch = (s->unicodeData[0] & 0x0f);
-                            break;
-                        case 4:
-                           ch = (s->unicodeData[0] & 0x07);
-                            break;
-                        case 5:
-                            ch = (s->unicodeData[0] & 0x03);
-                            break;
-                        case 6:
-                            ch = (s->unicodeData[0] & 0x01);
+                        case 2 ... 6:
+                            ch = (s->unicodeData[0] & (0x7f >> s->unicodeLength));
                             break;
                         default:
                             dprintf("bogus unicode length %u\n", s->unicodeLength);
@@ -1657,8 +1653,8 @@ static void console_putchar(TextConsole *s, int ch)
                             return;
                         break;
                     }
-                    for (i = 1; i <= s->unicodeLength - 1; i++) {
-                        ch = (ch << 6) + (s->unicodeData[i] & 0x3f);
+                    for (i = 1; i < s->unicodeLength; i++) {
+                        ch = (ch << 6) | (s->unicodeData[i] & 0x3f);
                     } 
                     s->unicodeIndex = 0;
                     ch = get_glyphcode(s, ch);
@@ -1667,42 +1663,30 @@ static void console_putchar(TextConsole *s, int ch)
 		}
                 /* multibyte sequence */
 		else if (ch > 0x7f) {
+                    memset(s->unicodeData, '\0', 7);
+                    s->unicodeData[0] = ch;
+                    s->unicodeIndex = 1;
                     if ((ch & 0xe0) == 0xc0) {
-                        memset(s->unicodeData, '\0', 7);
-			s->unicodeData[0] = ch;
-			s->unicodeIndex = 1;
 			s->unicodeLength = 2;
 			return;
 		    } 
 		    else
 		    if ((ch & 0xf0) == 0xe0) {
-                        memset(s->unicodeData, '\0', 7);
-			s->unicodeData[0] = ch;
-			s->unicodeIndex = 1;
 			s->unicodeLength = 3;
 			return;
 		    } 
 		    else
 		    if ((ch & 0xf8) == 0xf0) {
-                        memset(s->unicodeData, '\0', 7);
-			s->unicodeData[0] = ch;
-			s->unicodeIndex = 1;
 			s->unicodeLength = 4;
 			return;
 		    }
                     else
                     if ((ch & 0xfc) == 0xf8) {
-                        memset(s->unicodeData, '\0', 7);
-                        s->unicodeData[0] = ch;
-			s->unicodeIndex = 1;
 			s->unicodeLength = 5;
                         return;
                     }
                     else
                     if ((ch & 0xfe) == 0xfc) {
-                        memset(s->unicodeData, '\0', 7);
-                        s->unicodeData[0] = ch;
-			s->unicodeIndex = 1;
 			s->unicodeLength = 6;
                         return;
                     } else {
@@ -1743,6 +1727,7 @@ static void console_putchar(TextConsole *s, int ch)
 	    set_cursor(s, 0, 0);
 	    s->display_ctrl = 0;
 	    s->toggle_meta = 0;
+	    s->has_esc_param = 0;
 	    s->nb_esc_params = 0;
             s->t_attrib = s->t_attrib_default;
 	    /* reset any highlighted area */
@@ -1818,6 +1803,8 @@ static void console_putchar(TextConsole *s, int ch)
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
+		if (a > s->width - 1)
+		    a = s->width - 1;
 		d = &s->cells[y1 * s->width + s->width - 1 - a];
 		for (x = s->width - 1; x >= s->x + a; x--) {
 		    c->ch = d->ch;
@@ -1833,6 +1820,8 @@ static void console_putchar(TextConsole *s, int ch)
 		    s->esc_params[0] = 1;
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		dprintf("cursor up %d\n", a);
+		if (a > s->y)
+		    a = s->y;
 		set_cursor(s, s->x, s->y - a);
 		if (s->y < s->sr_top)
 		    set_cursor(s, s->x, s->sr_top);
@@ -1853,8 +1842,6 @@ static void console_putchar(TextConsole *s, int ch)
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		dprintf("cursor right %d\n", a);
 		set_cursor(s, s->x + a, s->y);
-		if (s->x >= s->width)
-		    set_cursor(s, s->width - 1, s->y);
                 break;
             case 'D': /* cursor left */
 		if (s->esc_params[0] == 0)
@@ -1862,8 +1849,6 @@ static void console_putchar(TextConsole *s, int ch)
 		a = s->nb_esc_params ? s->esc_params[0] : 1;
 		dprintf("cursor left %d\n", a);
 		set_cursor(s, s->x - a, s->y);
-		if (s->x < 0)
-		    set_cursor(s, 0, s->y);
                 break;
 	    case 'E': /* cursor down and to first column */
 		if (s->esc_params[0] == 0)
@@ -1886,20 +1871,23 @@ static void console_putchar(TextConsole *s, int ch)
 	    case '`': /* fallthrough */
 	    case 'G':
 		if (s->nb_esc_params == 1) {
+		    if (s->esc_params[0] == 0)
+			s->esc_params[0] = 1;
 		    dprintf("set cursor x %d\n", s->esc_params[0] - 1);
 		    set_cursor(s, s->esc_params[0] - 1, s->y);
-		    clip_x(s, x);
 		}
 		break;
 	    case 'f':
 	    case 'H': /* cursor position */
-		x_ = y_ = 0;
-		if (s->nb_esc_params > 1)
-		    x_ = s->esc_params[1] - 1;
-		if (s->nb_esc_params > 0)
-		    y_ = s->esc_params[0] - 1;
-		set_cursor(s, x_,  (s->origin_mode ? s->sr_top : 0) + y_);
-		clip_xy(s, x, y);
+		x = s->esc_params[1];
+		if (x == 0)
+		    x = 1;
+		--x;
+		y = s->esc_params[0];
+		if (y == 0)
+		    y = 1;
+		--y;
+		set_cursor(s, x,  (s->origin_mode ? s->sr_top : 0) + y);
 		dprintf("cursor pos %d:%d\n", s->y, s->x);
 		break;
 	    case 'J': /* eraseInDisplay */
@@ -1941,32 +1929,30 @@ static void console_putchar(TextConsole *s, int ch)
                 scroll_down(s, s->esc_params[0]);
 		break;
 	    case 'M':
-		if (s->esc_params[0] == 0)
-		    s->esc_params[0] = 1;
-                scroll_text_cells(s, s->y + s->esc_params[0], s->y, s->sr_bottom - s->y - s->esc_params[0] + 1);
-                update_rect(s, 0, s->y, s->width, s->sr_bottom - s->y - s->esc_params[0] + 1);
-                clear(s, 0, s->sr_bottom - s->esc_params[0] + 1, s->width, s->esc_params[0]);
+		a = s->esc_params[0];
+		if (a == 0)
+		    a = 1;
+		if (a > s->height)
+		    a = s->height;
+                scroll_text_cells(s, s->y + a, s->y, s->sr_bottom - s->y - a + 1);
+                update_rect(s, 0, s->y, s->width, s->sr_bottom - s->y - a + 1);
+                clear(s, 0, s->sr_bottom - a + 1, s->width, a);
 		break;
 	    case 'P':		/* DCH - delete character */
 		console_dch(s);
 		break;
             case 'X':		/* ECH - erase character */
-            {
-                int i = 0, a, nc = 0;
-                TextCell *c = &s->cells[screen_to_virtual(s,s->y) * s->width + s->x]; 
+		c = &s->cells[screen_to_virtual(s,s->y) * s->width];
 		if (s->esc_params[0] == 0)
 		    s->esc_params[0] = 1;
 		a = s->esc_params[0];
-		while (c->c_attrib.spanned) 
-		    c--;
-		while (i < a) {
-		    nc = nc + c->c_attrib.columns;
-		    c = c + c->c_attrib.columns;
-		    i++;
-		}
-		clear(s, s->x, s->y, s->x + nc, 1);
+		for (x = s->x; x > 0 && c[x].c_attrib.spanned; --x)
+		    continue;
+		for (; a > 0 && x < s->width; --a)
+		    x += c[x].c_attrib.columns;
+		/* does not test if x >= s->width as clear already clip x values*/
+		clear(s, s->x, s->y, x, 1);
                 break;
-            }
 	    case 'c': /* device attributes */
 		if (s->nb_esc_params == 0 )
                     va_write(s, "\033[?6c"); // I'm a VT102
@@ -1974,7 +1960,9 @@ static void console_putchar(TextConsole *s, int ch)
 		break;
 	    case 'd':
 		if (s->nb_esc_params == 1) {
-		    set_cursor(s, s->x, s->esc_params[0]-1);
+		    if (s->esc_params[0] == 0)
+			s->esc_params[0] = 1;
+		    set_cursor(s, s->x, s->esc_params[0] - 1);
 		}
 		break;
 	    case 'e':
@@ -2068,6 +2056,10 @@ static void console_putchar(TextConsole *s, int ch)
 		    s->sr_top = 0;
 		    s->sr_bottom = s->height - 1;
 		} else if (s->nb_esc_params == 2) {
+		    if (s->esc_params[0] == 0)
+			s->esc_params[0] = 1;
+		    if (s->esc_params[1] == 0)
+			s->esc_params[1] = 1;
 		    s->sr_top = s->esc_params[0] - 1;
 		    s->sr_bottom = s->esc_params[1] - 1;
 		    clip_xy(s, sr_top, sr_bottom);
@@ -2173,7 +2165,8 @@ static void console_putchar(TextConsole *s, int ch)
                 g += s->palette_params[j++];
                 b = 16 * s->palette_params[j++];
                 b += s->palette_params[j];
-                *(color_table[0] + s->palette_params[0]) = col_expand(s->ds, vga_get_color(s->ds, QEMU_RGB(r, g, b)));
+		if (s->palette_params[0] < 8)
+	                color_table[0][s->palette_params[0]] = col_expand(s->ds, vga_get_color(s->ds, QEMU_RGB(r, g, b)));
                 s->state = TTY_STATE_NORM; 
             }
         } else
@@ -2349,6 +2342,17 @@ void dump_console_to_file(CharDriverState *chr, char *fn)
     fclose(f);
 }
 
+static int clip_to(int value, int from, int to)
+{
+    if (value < from)
+        value = from;
+    if (value > to)
+        value = to;
+    return value;
+}
+
+#define clip_to(value, a, b) do { (value) = clip_to((value), a, b); } while(0)
+
 void load_console_from_file(CharDriverState *chr, char *fn)
 {
     FILE* f;
@@ -2367,6 +2371,10 @@ void load_console_from_file(CharDriverState *chr, char *fn)
     fread(&(s->g_width), sizeof(int), 1, f);
     fread(&(s->g_height), sizeof(int), 1, f);
     fread(&(s->total_height), sizeof(int), 1, f);
+
+    clip_to(s->g_width, FONT_WIDTH*2, FONT_WIDTH*1600);
+    clip_to(s->g_height, FONT_HEIGHT*2, FONT_HEIGHT*500);
+    clip_to(s->total_height, s->g_height / FONT_HEIGHT, 8192);
     
     text_console_resize(s);
     
@@ -2405,6 +2413,28 @@ void load_console_from_file(CharDriverState *chr, char *fn)
     fread(s->unicodeData, sizeof(char), 7, f);
     fread(&(s->unicodeLength), sizeof(int), 1, f);
     fclose(f);
+
+    /* sanitize values */
+    clip_to(s->unicodeLength, 0, sizeof(s->unicodeData));
+    clip_to(s->unicodeIndex, 0, s->unicodeLength);
+    clip_to(s->sr_bottom, 0, s->height - 1);
+    clip_to(s->sr_top, 0, s->height - 1);
+    clip_to(s->y_base, 0, s->total_height);
+    clip_to(s->backscroll, 0, s->total_height - s->height);
+    clip_to(s->y_scroll, 0, s->backscroll);
+    clip_to(s->x, 0, s->width - 1);
+    clip_to(s->y, 0, s->height - 1);
+    clip_to(s->saved_x, 0, s->width - 1);
+    clip_to(s->saved_y, 0, s->height - 1);
+    clip_to(s->mouse_x, -1, s->width - 1);
+    clip_to(s->mouse_y, -1, s->height - 1);
+    clip_to(s->cursor_visible, 0, 1);
+    clip_to(s->autowrap, 0, 1);
+    clip_to(s->insert_mode, 0, 1);
+    clip_to(s->nb_esc_params, 0, MAX_ESC_PARAMS);
+    clip_to(s->has_esc_param, 0, 1);
+    clip_to(s->has_qmark, 0, 1);
+    clip_to(s->state, 0, TTY_STATE_MAX);
 }
 
 /* called when an ascii key is pressed */
@@ -2628,22 +2658,7 @@ static TextConsole *new_console(DisplayState *ds, int text)
     return s;
 }
 
-TextConsole *graphic_console_init(DisplayState *ds)
-{
-    TextConsole *s;
-
-    s = new_console(ds, 0);
-    if (!s)
-      return NULL;
-    return s;
-}
-
-int is_graphic_console(void)
-{
-    return !active_console->text_console;
-}
-
-void set_color_table(DisplayState *ds) 
+static void set_color_table(DisplayState *ds)
 {
     int i, j;
     for(j = 0; j < 2; j++) {
@@ -2699,7 +2714,6 @@ CharDriverState *text_console_init(DisplayState *ds)
 
     s->y_base = DEFAULT_BACKSCROLL/3;
     s->total_height = DEFAULT_BACKSCROLL;
-    set_cursor(s, 0, 0);
 
     zero_selection(s, 1);
 
@@ -2733,6 +2747,7 @@ CharDriverState *text_console_init(DisplayState *ds)
     s->t_attrib = s->t_attrib_default;
 
     text_console_resize(s);
+    set_cursor(s, 0, 0);
 
     return chr;
 }

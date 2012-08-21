@@ -11,7 +11,7 @@ CFLAGS += -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GNU_SOURCE
 CFLAGS += -Wall -Werror -g -O1 
 
 ifeq ($(shell uname),Linux)
-LDLIBS := -lutil
+LDLIBS := -lutil -lrt
 endif
 
 ifndef WITHOUT_XENSTORE
