@@ -10,4 +10,4 @@ Forwarded:: not-needed.
 +CFLAGS += -Wall -g -O1 
  
  ifeq ($(shell uname),Linux)
- LDLIBS := -lutil
+ LDLIBS := -lutil -lrt
