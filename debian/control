@@ -11,7 +11,7 @@ Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-xen/xcp-vncterm.git
 
 Package: xcp-vncterm
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${dist:Depends}
 Description: Provides VNC service for XCP guest VMs
  The Xen Cloud Platform (XCP) is an open source enterprise-ready server
  virtualization and cloud computing platform, delivering the Xen Hypervisor

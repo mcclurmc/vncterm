@@ -4,6 +4,14 @@
 
 export DH_OPTIONS
 
+ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
+	SUBSTVARS = -Vdist:Depends="qemu-common"
+else
+	SUBSTVARS = -Vdist:Depends="qemu-keymaps"
+endif
 
 %:
 	dh $@ 
+
+override_dh_gencontrol:
+	dh_gencontrol -- $(SUBSTVARS)
