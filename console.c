@@ -121,6 +121,7 @@ write_or_chunk(struct chunked_stream *s, uint8_t *buf, int len)
     while (s->chunk) {
 	done = write(s->fd, s->chunk->data + s->chunk->offset,
 		     s->chunk->len - s->chunk->offset);
+        if (done < 0) return; /* XXX error */
 	s->chunk->offset += done;
 	if (s->chunk->offset == s->chunk->len) {
 	    s->chunk = s->chunk->next;
@@ -131,6 +132,7 @@ write_or_chunk(struct chunked_stream *s, uint8_t *buf, int len)
     }
     if (s->chunk == NULL) {
 	done = write(s->fd, buf, len);
+        if (done < 0) return; /* XXX error */
 	if (done == len)
 	    return;
     }
@@ -170,7 +172,9 @@ struct TextConsole {
     /* maximum possible height (backscroll)*/
     int total_height;
 
-    /* current cursor position */
+    /* current cursor position in screen coordinate
+     * always 0 <= x < width and 0 <= y <= height
+     */
     int x, y;
 
     /* saved cursor position */
@@ -182,11 +186,11 @@ struct TextConsole {
     /* screen's 1st line (the top line)*/
     int y_base;
 
-    /* this is ofset that is substracted from y_base 
+    /* this is offset that is substracted from y_base
        and points to currently displayed screen */
     int y_scroll;
 
-    /* scroll region */
+    /* scroll region in screen coordinate */
     int sr_top, sr_bottom;
 
     /* self explanatory */
@@ -728,19 +732,14 @@ static void update_xy(TextConsole *s, int x, int y)
 {
     TextCell *c;
 
-    if (y<0 || x<0 || x>=s->width || y>=s->height)
+    if (y<0 || x<0 || x>=s->width || y>=s->height || s != active_console)
 	return;
 
-    if (s == active_console) {
-
-        if (y < s->height) {
-            c = &s->cells[screen_to_virtual(s,y) * s->width + x];
-            vga_putcharxy(s, x, y, c->ch, 
-                          &(c->t_attrib), &(c->c_attrib));
-            s->ds->dpy_update(s->ds, x * FONT_WIDTH, y * FONT_HEIGHT, 
-			      FONT_WIDTH, FONT_HEIGHT);
-        }
-    }
+    c = &s->cells[screen_to_virtual(s,y) * s->width + x];
+    vga_putcharxy(s, x, y, c->ch,
+                  &(c->t_attrib), &(c->c_attrib));
+    s->ds->dpy_update(s->ds, x * FONT_WIDTH, y * FONT_HEIGHT,
+		      FONT_WIDTH, FONT_HEIGHT);
 }
 /*
   update whole rectangle of characters, as visible on screen
@@ -1010,6 +1009,94 @@ static void console_scroll(TextConsole *s, int ydelta)
     else {
 	update_rect(s, 0, 0, s->width, s->height );
     }
+}
+
+static void scroll_text_cells(TextConsole* s, int f, int t, int by)
+{
+    TextCell* fc, *tc;
+    int m_fy, m_ty, direction;
+
+    direction = by/abs(by);
+    by = abs(by);
+
+    while(by--) {
+	m_fy = screen_to_virtual(s, f);
+	m_ty = screen_to_virtual(s, t);
+
+	fc = &s->cells[(m_fy * s->width)];
+	tc = &s->cells[(m_ty * s->width)];
+
+	memmove(tc, fc, s->width*sizeof(TextCell));
+
+	t += direction;
+	f += direction;
+    };
+}
+
+static void scroll_to_base(TextConsole*s) 
+{
+    if (s->y_scroll)
+	console_scroll(s, s->y_scroll);
+}
+
+/* scrolls down, moves whole view to the +n point */
+static void scroll_down(TextConsole* s, int n)
+{
+    if (!s || !s->text_console)
+        return;
+    
+    if ( s->sr_top != 0 || s->sr_bottom != s->height-1 ) {
+        if ( n > s->sr_bottom-s->sr_top ) {
+            n = s->sr_bottom-s->sr_top;
+        }
+        scroll_text_cells(s, s->sr_bottom-n, s->sr_bottom, n - s->sr_bottom + s->sr_top - 1);
+        update_rect(s, 0, s->sr_top + n, s->width, s->sr_bottom - s->sr_top - n + 1);
+        clear(s, 0, s->sr_top, s->width, n);
+        
+        return;
+    }
+       
+    s->backscroll -= n;
+    if (s->backscroll < 0)
+        s->backscroll = 0;
+    
+    s->y_base -= n;
+    if (s->y_base < 0)
+        s->y_base += s->total_height;
+
+    vga_scroll(s, -n);
+    clear(s, 0, s->sr_top, s->width, n);
+    s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
+}
+
+/* scrolls up, moves whole view to the -n point */
+static void scroll_up(TextConsole* s, int n)
+{
+    if (!s || !s->text_console)
+        return;
+    
+    if ( s->sr_top != 0 || s->sr_bottom != s->height-1 ) {
+        if ( n > s->sr_bottom-s->sr_top ) {
+            n = s->sr_bottom-s->sr_top;
+        }
+        scroll_text_cells(s, s->sr_top+n, s->sr_top, s->sr_bottom-s->sr_top-n+1);
+        update_rect(s, 0, s->sr_top, s->width, s->sr_bottom - s->sr_top - n + 1);
+        clear(s, 0, s->sr_bottom - n + 1, s->width, n);
+        
+        return;
+    }
+    
+    s->backscroll += n;
+    if (s->backscroll > (s->total_height-s->height) )
+        s->backscroll = s->total_height-s->height;
+
+    s->y_base = s->y_base + n;  
+    if (s->y_base > s->total_height )
+        s->y_base -= s->total_height;
+    
+    vga_scroll(s, n);
+    clear(s, 0, s->sr_bottom - n + 1, s->width, n);
+    s->ds->dpy_update(s->ds, 0, 0, s->g_width, s->g_height);
 }
 
 static void scroll_text_cells(TextConsole* s, int f, int t, int by)
@@ -1948,10 +2035,10 @@ static void console_putchar(TextConsole *s, int ch)
                 update_rect(s, 0, s->y, s->width, s->sr_bottom - s->y - s->esc_params[0] + 1);
                 clear(s, 0, s->sr_bottom - s->esc_params[0] + 1, s->width, s->esc_params[0]);
 		break;
-	    case 'P':		/* DCH */
+	    case 'P':		/* DCH - delete character */
 		console_dch(s);
 		break;
-            case 'X':
+            case 'X':		/* ECH - erase character */
             {
                 int i = 0, a, nc = 0;
                 TextCell *c = &s->cells[screen_to_virtual(s,s->y) * s->width + s->x]; 
@@ -2270,12 +2357,12 @@ static void kbd_send_chars(void *opaque)
 
 static int cmputfents(const void *p1, const void *p2)
 {
-    short a,b;
+    int a,b;
 
-    a=*(short*)p1;
-    b=*(short*)p2;
+    a=*(int*)p1;
+    b=*(int*)p2;
 
-    return a-b;
+    return (a&0xffff)-(b&0xffff);
 }
 
 static void prepare_console_maps()
@@ -2610,7 +2697,7 @@ static TextConsole *new_console(DisplayState *ds, int text)
     if (!active_console || (active_console->text_console && !text))
         active_console = s;
     s->ds = ds;
-    s->cells = 0;
+    s->cells = NULL;
     s->text_console = text;
     ds->graphic_mode = text ? 0 : 1;
     if (text) {

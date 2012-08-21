@@ -14,7 +14,7 @@ $(MY_OBJ_DIR)/version.inc:
 	rm -f $(MY_OBJ_DIR)/version.inc
 	$(version-makefile) > $@
 	$(call hg_cset_number,vncterm) >> $@
-	echo VNCTERM_VERSION := \$$\(PRODUCT_VERSION\) >> $@
+	echo VNCTERM_VERSION := \$$\(PLATFORM_VERSION\) >> $@
 	echo VNCTERM_RELEASE := \$$\(CSET_NUMBER\) >> $@
 
 CHANGELOG_DATE    := $(shell LANG=C date +"%a %b %d %Y")
@@ -22,14 +22,18 @@ CHANGELOG_USER    := $(COMPANY_NAME) <$(COMPANY_WEBSITE)>
 CHANGELOG_HEADER  := * $(CHANGELOG_DATE) $(CHANGELOG_USER) [$(VNCTERM_VERSION) $(VNCTERM_RELEASE)]
 CHANGELOG_MESSAGE := - Build vncterm.
 
+SRPM := $(RPM_SRPMSDIR)/vncterm-$(VNCTERM_VERSION)-$(VNCTERM_RELEASE).src.rpm
+
 .PHONY: build
-build: $(RPM_BUILD_COOKIE)
+build: $(RPM_BUILD_COOKIE) \
+	$(MY_SOURCES)/MANIFEST
 	@ :
 
 .PHONY: clean
 clean:
 	rm -f $(RPM_BUILD_COOKIE)
 	rm -f $(MY_OBJ_DIR)/version.inc
+	rm -f $(MY_SOURCES)/MANIFEST
 
 SOURCES = $(RPM_SOURCESDIR)/vncterm-$(VNCTERM_VERSION).tar.bz2 \
 	  $(RPM_SOURCESDIR)/vncterm-development.patch \
@@ -57,3 +61,6 @@ $(RPM_SPECSDIR)/vncterm.spec: vncterm.spec.in $(RPM_SPECSDIR)/.dirstamp
 $(RPM_BUILD_COOKIE): $(RPM_DIRECTORIES) $(SOURCES)
 	$(RPMBUILD) --target i686 -ba $(RPM_SPECSDIR)/vncterm.spec
 	@touch $@
+
+$(MY_SOURCES)/MANIFEST: $(MY_SOURCES)/.dirstamp
+	echo "$(REPO_NAME) $(call rpm_license,$(SRPM)) file $(SRPM)" > $@

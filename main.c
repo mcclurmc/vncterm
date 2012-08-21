@@ -1,3 +1,21 @@
+/*
+    Copyright (c) Citrix Systems Inc.
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+*/
+
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -15,6 +33,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sched.h>
 
 #include <sys/poll.h>
 #include <sys/socket.h>
@@ -48,6 +67,10 @@
 
 #define FONTH	16
 #define FONTW	8
+
+#ifndef CLONE_NEWNET
+#define CLONE_NEWNET 0x40000000
+#endif
 
 char vncpasswd[64];
 unsigned char challenge[AUTHCHALLENGESIZE];
@@ -935,6 +958,9 @@ main(int argc, char **argv, char **envp)
             privsep_fd = socks[0];
             xs_daemon_close(xs);
 
+            if (!cmd_mode)
+                unshare(CLONE_NEWNET);
+
             rlim.rlim_cur = 64 * 1024 * 1024;
             rlim.rlim_max = 64 * 1024 * 1024 + 64;
             setrlimit(RLIMIT_FSIZE, &rlim);
@@ -1157,4 +1183,7 @@ static void _write_port_to_xenstore(char *xenstore_path, char *type, int no)
     ret = xs_write(xs, XBT_NULL, path, port, strlen(port));
     if (!ret)
         err(1, "xs_write");
+
+    free(port);
+    free(path);
 }

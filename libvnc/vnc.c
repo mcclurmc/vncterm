@@ -430,36 +430,40 @@ static void vnc_write_pixels_copy(struct VncClientState *vcs, void *pixels,
 static void vnc_convert_pixel(struct VncClientState *vcs, uint8_t *buf,
                   uint32_t v)
 {
-    uint8_t r, g, b;
+    uint32_t r, g, b;
     r = ((v >> vcs->red_shift1) & vcs->red_max1) * (vcs->red_max + 1) / (vcs->red_max1 + 1);
     g = ((v >> vcs->green_shift1) & vcs->green_max1) * (vcs->green_max + 1) / (vcs->green_max1 + 1);
     b = ((v >> vcs->blue_shift1) & vcs->blue_max1) * (vcs->blue_max + 1) / (vcs->blue_max1 + 1);
+    v = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
     switch(vcs->pix_bpp) {
     case 1:
-        buf[0] = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
+        buf[0] = (uint8_t) v;
         break;
     case 2:
-    {
-        uint16_t *p = (uint16_t *) buf;
-        *p = (r << vcs->red_shift) | (g << vcs->green_shift) | (b << vcs->blue_shift);
         if (vcs->pix_big_endian) {
-            *p = htons(*p);
+            buf[0] = v >> 8;
+            buf[1] = v;
+        } else {
+            buf[1] = v >> 8;
+            buf[0] = v;
         }
+        *cur = *cur + 2;
     }
         break;
     default:
     case 4:
         if (vcs->pix_big_endian) {
-            buf[0] = 255;
-            buf[1] = r;
-            buf[2] = g;
-            buf[3] = b;
+            buf[0] = v >> 24;
+            buf[1] = v >> 16;
+            buf[2] = v >> 8;
+            buf[3] = v;
         } else {
-            buf[0] = b;
-            buf[1] = g;
-            buf[2] = r;
-            buf[3] = 255;
+            (*cur)[0] = b;
+            (*cur)[1] = g;
+            (*cur)[2] = r;
+            (*cur)[3] = 255;
         }
+        *cur = *cur + 4;
         break;
     }
 }
@@ -496,6 +500,17 @@ static void vnc_write_pixels_generic(struct VncClientState *vcs,
     } else {
         fprintf(stderr, "vnc_write_pixels_generic: VncState color depth not supported\n");
     }
+
+    vnc_write_u16(vcs, 0);
+    vnc_write_u16(vcs, 1); /* number of rects */
+
+    /* width 8, height - number of bytes in mask, hotspot in the middle */
+    vnc_framebuffer_update(vcs, 8 / 2, sizeof(cursorbmsk) / 2, 8,
+               sizeof(cursorbmsk), -239);
+    vnc_write_pixels_copy(vcs, cursorcur, size);
+    vnc_write(vcs, cursorbmsk, sizeof(cursorbmsk));
+
+    free(cursorcur);
 }
 
 unsigned char cursorbmsk[16] = {
@@ -843,7 +858,7 @@ static int vnc_client_io_error(struct VncClientState *vcs, int ret,
 {
     struct VncState *vs = vcs->vs;
 
-    if (ret != 0 && ret != -1)
+    if (ret > 0)
 	return ret;
 
     if (ret == -1 && (last_errno == EINTR || last_errno == EAGAIN))
@@ -1874,6 +1889,7 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
     int reuse_addr, ret;
     socklen_t addrlen;
     VncState *vs;
+    in_port_t port = 0;
 
     vs = qemu_mallocz(sizeof(VncState));
     if (!vs)
@@ -1930,17 +1946,20 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
 	}
     } else
 #endif
+ again:
     if (addr->sa_family == AF_INET) {
 	iaddr = (struct sockaddr_in *)addr;
 	addrlen = sizeof(struct sockaddr_in);
+
+	if (!port) {
+	    port = ntohs(iaddr->sin_port) + 5900;
+	}
 
 	vs->lsock = socket(PF_INET, SOCK_STREAM, 0);
 	if (vs->lsock == -1) {
 	    fprintf(stderr, "Could not create socket\n");
 	    exit(1);
 	}
-
-	iaddr->sin_port = htons(ntohs(iaddr->sin_port) + 5900);
 
 	reuse_addr = 1;
 	ret = setsockopt(vs->lsock, SOL_SOCKET, SO_REUSEADDR,
@@ -1957,16 +1976,29 @@ int vnc_display_init(DisplayState *ds, struct sockaddr *addr,
       ret = fcntl(vs->lsock, F_GETFD, NULL);
       fcntl(vs->lsock, F_SETFD, ret | FD_CLOEXEC);
 
-    while (bind(vs->lsock, addr, addrlen) == -1) {
-	if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET) {
-	    iaddr->sin_port = htons(ntohs(iaddr->sin_port) + 1);
-	    continue;
+    do {
+	iaddr->sin_port = htons(port);
+	ret = bind(vs->lsock, addr, addrlen);
+	if (ret == -1) {
+	    if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET) {
+		port++;
+	    }
+	    else {
+	      break;
+	    }
 	}
+    } while (ret == -1);
+    if (ret == -1) {
 	fprintf(stderr, "bind() failed\n");
 	exit(1);
     }
 
     if (listen(vs->lsock, 1) == -1) {
+	if (errno == EADDRINUSE && find_unused && addr->sa_family == AF_INET) {
+	    close(vs->lsock);
+	    port++;
+	    goto again;
+	}
 	fprintf(stderr, "listen() failed\n");
 	exit(1);
     }

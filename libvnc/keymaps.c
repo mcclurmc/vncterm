@@ -24,7 +24,7 @@
 
 static int get_keysym(const char *name)
 {
-    name2keysym_t *p;
+    const name2keysym_t *p;
     for(p = name2keysym; p->name != NULL; p++) {
         if (!strcmp(p->name, name))
             return p->keysym;
@@ -170,9 +170,6 @@ static int keysym2scancode(void *kbd_layout, int keysym)
     if (keysym >= 'A' && keysym <= 'Z')
 	keysym = keysym - 'A' + 'a';
     if (keysym < MAX_NORMAL_KEYCODE) {
-	if (k->keysym2keycode[keysym] == 0)
-	    fprintf(stderr, "Warning: no scancode found for keysym %d\n",
-		    keysym);
 	return k->keysym2keycode[keysym];
     } else {
 	int i;
